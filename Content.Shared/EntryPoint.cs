@@ -1,23 +1,37 @@
 ﻿﻿using System;
  using System.Collections.Generic;
+ using System.Globalization;
  using Content.Shared.Maps;
  using Robust.Shared.ContentPack;
  using Robust.Shared.Interfaces.Map;
  using Robust.Shared.IoC;
+ using Robust.Shared.Localization;
+ using Robust.Shared.Localization.Macros;
  using Robust.Shared.Prototypes;
 
  namespace Content.Shared
 {
     public class EntryPoint : GameShared
     {
-#pragma warning disable 649
-        [Dependency] private readonly IPrototypeManager _prototypeManager;
-        [Dependency] private readonly ITileDefinitionManager _tileDefinitionManager;
-#pragma warning restore 649
+        // If you want to change your codebase's language, do it here.
+        private const string Culture = "en-US";
+
+        [Dependency] private readonly IPrototypeManager _prototypeManager = default!;
+        [Dependency] private readonly ITileDefinitionManager _tileDefinitionManager = default!;
+
+        public override void PreInit()
+        {
+            IoCManager.InjectDependencies(this);
+
+            var textMacroFactory = IoCManager.Resolve<ITextMacroFactory>();
+            textMacroFactory.DoAutoRegistrations();
+
+            // Default to en-US.
+            Loc.LoadCulture(new CultureInfo(Culture));
+        }
 
         public override void Init()
         {
-            IoCManager.InjectDependencies(this);
         }
 
         public override void PostInit()

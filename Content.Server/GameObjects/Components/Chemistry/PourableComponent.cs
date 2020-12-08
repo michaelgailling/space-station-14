@@ -1,11 +1,8 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-using Content.Server.GameObjects.Components.Nutrition;
-using Content.Server.GameObjects.EntitySystems;
-using Content.Server.Interfaces;
+﻿using System.Threading.Tasks;
+using Content.Shared.Chemistry;
+using Content.Shared.Interfaces;
+using Content.Shared.Interfaces.GameObjects.Components;
 using Robust.Shared.GameObjects;
-using Robust.Shared.IoC;
 using Robust.Shared.Localization;
 using Robust.Shared.Serialization;
 using Robust.Shared.ViewVariables;
@@ -19,22 +16,17 @@ namespace Content.Server.GameObjects.Components.Chemistry
     /// (DrinkComponent adds a SolutionComponent if one isn't present).
     /// </summary>
     [RegisterComponent]
-    class PourableComponent : Component, IAttackBy
+    class PourableComponent : Component, IInteractUsing
     {
-#pragma warning disable 649
-        [Dependency] private readonly IServerNotifyManager _notifyManager;
-        [Dependency] private readonly ILocalizationManager _localizationManager;
-#pragma warning restore 649
-
         public override string Name => "Pourable";
 
-        private int _transferAmount;
+        private ReagentUnit _transferAmount;
 
         /// <summary>
         ///     The amount of solution to be transferred from this solution when clicking on other solutions with it.
         /// </summary>
-        [ViewVariables]
-        public int TransferAmount
+        [ViewVariables(VVAccess.ReadWrite)]
+        public ReagentUnit TransferAmount
         {
             get => _transferAmount;
             set => _transferAmount = value;
@@ -43,7 +35,7 @@ namespace Content.Server.GameObjects.Components.Chemistry
         public override void ExposeData(ObjectSerializer serializer)
         {
             base.ExposeData(serializer);
-            serializer.DataField(ref _transferAmount, "transferAmount", 5);
+            serializer.DataField(ref _transferAmount, "transferAmount", ReagentUnit.New(5.0));
         }
 
         /// <summary>
@@ -53,37 +45,67 @@ namespace Content.Server.GameObjects.Components.Chemistry
         /// </summary>
         /// <param name="eventArgs">Attack event args</param>
         /// <returns></returns>
-        bool IAttackBy.AttackBy(AttackByEventArgs eventArgs)
+        async Task<bool> IInteractUsing.InteractUsing(InteractUsingEventArgs eventArgs)
         {
-            //Get target and check if it can be poured into
-            if (!Owner.TryGetComponent<SolutionComponent>(out var targetSolution))
-                return false;
-            if (!targetSolution.CanPourIn)
+            //Get target solution component
+            if (!Owner.TryGetComponent<SolutionContainerComponent>(out var targetSolution))
                 return false;
 
-            //Get attack entity and check if it can pour out.
-            var attackEntity = eventArgs.AttackWith;
-            if (!attackEntity.TryGetComponent<SolutionComponent>(out var attackSolution) || !attackSolution.CanPourOut)
-                return false;
-            if (!attackEntity.TryGetComponent<PourableComponent>(out var attackPourable))
+            //Get attack solution component
+            var attackEntity = eventArgs.Using;
+            if (!attackEntity.TryGetComponent<SolutionContainerComponent>(out var attackSolution))
                 return false;
 
-            //Get transfer amount. May be smaller than _transferAmount if not enough room
-            int realTransferAmount = Math.Min(attackPourable.TransferAmount, targetSolution.EmptyVolume);
-            if (realTransferAmount <= 0) //Special message if container is full
+            // Calculate possibe solution transfer
+            if (targetSolution.CanAddSolutions && attackSolution.CanRemoveSolutions)
             {
-                _notifyManager.PopupMessage(Owner.Transform.GridPosition, eventArgs.User,
-                    _localizationManager.GetString("Container is full"));
+                // default logic (beakers and glasses)
+                // transfer solution from object in hand to attacked
+                return TryTransfer(eventArgs, attackSolution, targetSolution);
+            }
+            else if (targetSolution.CanRemoveSolutions && attackSolution.CanAddSolutions)
+            {
+                // storage tanks and sinks logic
+                // drain solution from attacked object to object in hand
+                return TryTransfer(eventArgs, targetSolution, attackSolution);
+            }
+
+            // No transfer possible
+            return false;
+        }
+
+        bool TryTransfer(InteractUsingEventArgs eventArgs, SolutionContainerComponent fromSolution, SolutionContainerComponent toSolution)
+        {
+            var fromEntity = fromSolution.Owner;
+
+            if (!fromEntity.TryGetComponent<PourableComponent>(out var fromPourable))
+            {
                 return false;
             }
 
-            //Move units from attackSolution to targetSolution
-            var removedSolution = attackSolution.SplitSolution(realTransferAmount);
-            if (!targetSolution.TryAddSolution(removedSolution))
-                return false;
+            //Get transfer amount. May be smaller than _transferAmount if not enough room
+            var realTransferAmount = ReagentUnit.Min(fromPourable.TransferAmount, toSolution.EmptyVolume);
 
-            _notifyManager.PopupMessage(Owner.Transform.GridPosition, eventArgs.User,
-                _localizationManager.GetString("Transferred {0}u", removedSolution.TotalVolume));
+            if (realTransferAmount <= 0) // Special message if container is full
+            {
+                Owner.PopupMessage(eventArgs.User, Loc.GetString("{0:theName} is full!", toSolution.Owner));
+                return false;
+            }
+            
+            //Move units from attackSolution to targetSolution
+            var removedSolution = fromSolution.SplitSolution(realTransferAmount);
+
+            if (removedSolution.TotalVolume <= ReagentUnit.Zero)
+            {
+                return false;
+            }
+
+            if (!toSolution.TryAddSolution(removedSolution))
+            {
+                return false;
+            }
+
+            Owner.PopupMessage(eventArgs.User, Loc.GetString("You transfer {0}u to {1:theName}.", removedSolution.TotalVolume, toSolution.Owner));
 
             return true;
         }

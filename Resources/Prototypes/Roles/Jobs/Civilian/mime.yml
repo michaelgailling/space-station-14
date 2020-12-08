@@ -1,0 +1,26 @@
+- type: job
+  id: Mime
+  name: "mime"
+  positions: 1
+  startingGear: MimeGear
+  department:
+  - Civilian
+  icon: "Mime"
+  access:
+  - Theatre
+  - Maintenance
+
+- type: startingGear
+  id: MimeGear
+  equipment:
+    innerclothing: ClothingUniformJumpsuitMime
+    backpack: ClothingBackpackFilled
+    head: ClothingHeadHatBeret
+    belt: ClothingBeltSuspenders
+    gloves: ClothingHandsGlovesLatex
+    shoes: ClothingShoesColorWhite
+    pocket1: Pen
+    pocket2: Paper
+    mask: ClothingMaskMime
+    idcard: MimePDA
+    ears: ClothingHeadsetService

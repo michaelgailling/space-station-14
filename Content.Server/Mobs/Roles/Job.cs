@@ -1,7 +1,5 @@
-using System;
-using System.Collections.Generic;
 using Content.Server.Interfaces.Chat;
-using Content.Shared.Jobs;
+using Content.Shared.Roles;
 using Robust.Shared.IoC;
 
 namespace Content.Server.Mobs.Roles
@@ -11,8 +9,9 @@ namespace Content.Server.Mobs.Roles
         public JobPrototype Prototype { get; }
 
         public override string Name { get; }
+        public override bool Antagonist => false;
 
-        public String StartingGear => Prototype.StartingGear;
+        public string StartingGear => Prototype.StartingGear;
 
         public Job(Mind mind, JobPrototype jobPrototype) : base(mind)
         {
@@ -25,9 +24,7 @@ namespace Content.Server.Mobs.Roles
             base.Greet();
 
             var chat = IoCManager.Resolve<IChatManager>();
-            chat.DispatchServerMessage(
-                Mind.Session,
-                String.Format("You're a new {0}. Do your best!", Name));
+            chat.DispatchServerMessage(Mind.Session, $"You're a new {Name}. Do your best!");
         }
     }
 

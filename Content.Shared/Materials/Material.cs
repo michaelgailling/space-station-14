@@ -12,7 +12,7 @@ namespace Content.Shared.Materials
     ///     Materials are read-only storage for the properties of specific materials.
     ///     Properties should be intrinsic (or at least as much is necessary for game purposes).
     /// </summary>
-public class Material : IExposeData
+    public class Material : IExposeData
     {
         public string Name => _name;
         private string _name = "unobtanium";
@@ -101,13 +101,13 @@ public class Material : IExposeData
             // All default material params are initialized to 1 because
             // I'm too lazy to figure out for which that's necessary to prevent divisions by zero in case left out.
             serializer.DataField(ref _density, "density", 1, alwaysWrite: true);
-            serializer.DataField(ref _electricResistivity, "electricresistivity", 1, alwaysWrite: true);
-            serializer.DataField(ref _thermalConductivity, "thermalconductivity", 1, alwaysWrite: true);
-            serializer.DataField(ref _specificHeat, "specificheat", 1, alwaysWrite: true);
+            serializer.DataField(ref _electricResistivity, "electricResistivity", 1, alwaysWrite: true);
+            serializer.DataField(ref _thermalConductivity, "thermalConductivity", 1, alwaysWrite: true);
+            serializer.DataField(ref _specificHeat, "specificHeat", 1, alwaysWrite: true);
             serializer.DataField(ref _durability, "durability", 1, alwaysWrite: true);
             serializer.DataField(ref _hardness, "hardness", 1, alwaysWrite: true);
-            serializer.DataField(ref _sharpDamage, "sharpdamage", 1, alwaysWrite: true);
-            serializer.DataField(ref _bluntDamage, "bluntdamage", 1, alwaysWrite: true);
+            serializer.DataField(ref _sharpDamage, "sharpDamage", 1, alwaysWrite: true);
+            serializer.DataField(ref _bluntDamage, "bluntDamage", 1, alwaysWrite: true);
             serializer.DataField(ref _icon, "icon", SpriteSpecifier.Invalid, alwaysWrite: true);
         }
     }

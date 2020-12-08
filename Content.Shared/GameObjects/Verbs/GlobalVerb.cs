@@ -2,7 +2,7 @@
 using JetBrains.Annotations;
 using Robust.Shared.Interfaces.GameObjects;
 
-namespace Content.Shared.GameObjects
+namespace Content.Shared.GameObjects.Verbs
 {
     /// <summary>
     ///     A verb is an action in the right click menu of an entity.
@@ -12,27 +12,19 @@ namespace Content.Shared.GameObjects
     ///     To add a global verb to all entities,
     ///     define it and mark it with <see cref="GlobalVerbAttribute"/>
     /// </remarks>
-    public abstract class GlobalVerb
+    public abstract class GlobalVerb : VerbBase
     {
         /// <summary>
-        ///     If true, this verb requires the user to be within
-        ///     <see cref="VerbUtility.InteractionRange"/> meters from the entity on which this verb resides.
+        ///     Gets the visible verb data for the user.
         /// </summary>
-        public virtual bool RequireInteractionRange => true;
-
-        /// <summary>
-        ///     Gets the text string that will be shown to <paramref name="user"/> in the right click menu.
-        /// </summary>
+        /// <remarks>
+        ///     Implementations should write into <paramref name="data"/> to return their data.
+        /// </remarks>
         /// <param name="user">The entity of the user opening this menu.</param>
+        /// <param name="target">The entity this verb is being evaluated for.</param>
+        /// <param name="data">The data that must be filled in.</param>
         /// <returns>The text string that is shown in the right click menu for this verb.</returns>
-        public abstract string GetText(IEntity user, IEntity target);
-
-        /// <summary>
-        ///     Gets the visibility level of this verb in the right click menu.
-        /// </summary>
-        /// <param name="user">The entity of the user opening this menu.</param>
-        /// <returns>The visibility level of the verb in the client's right click menu.</returns>
-        public abstract VerbVisibility GetVisibility(IEntity user, IEntity target);
+        public abstract void GetData(IEntity user, IEntity target, VerbData data);
 
         /// <summary>
         ///     Invoked when this verb is activated from the right click menu.
@@ -40,6 +32,13 @@ namespace Content.Shared.GameObjects
         /// <param name="user">The entity of the user opening this menu.</param>
         /// <param name="target">The entity that is being acted upon.</param>
         public abstract void Activate(IEntity user, IEntity target);
+
+        public VerbData GetData(IEntity user, IEntity target)
+        {
+            var data = new VerbData();
+            GetData(user, target, data);
+            return data;
+        }
     }
 
     /// <summary>

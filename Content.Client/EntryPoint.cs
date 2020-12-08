@@ -1,4 +1,6 @@
 ﻿using System;
+using Content.Client.Administration;
+using Content.Client.Eui;
 using Content.Client.GameObjects.Components.Actor;
 using Content.Client.Input;
 using Content.Client.Interfaces;
@@ -7,20 +9,30 @@ using Content.Client.Interfaces.Parallax;
 using Content.Client.Parallax;
 using Content.Client.Sandbox;
 using Content.Client.State;
+using Content.Client.StationEvents;
 using Content.Client.UserInterface;
+using Content.Client.UserInterface.AdminMenu;
+using Content.Client.UserInterface.Stylesheets;
 using Content.Shared.GameObjects.Components;
 using Content.Shared.GameObjects.Components.Cargo;
 using Content.Shared.GameObjects.Components.Chemistry;
+using Content.Shared.GameObjects.Components.Chemistry.ChemMaster;
+using Content.Shared.GameObjects.Components.Chemistry.ReagentDispenser;
+using Content.Shared.GameObjects.Components.Gravity;
 using Content.Shared.GameObjects.Components.Markers;
+using Content.Shared.GameObjects.Components.Power.AME;
 using Content.Shared.GameObjects.Components.Research;
 using Content.Shared.GameObjects.Components.VendingMachines;
+using Content.Shared.Kitchen;
+using Content.Shared.Alert;
+using Robust.Client;
 using Robust.Client.Interfaces;
 using Robust.Client.Interfaces.Graphics.Overlays;
 using Robust.Client.Interfaces.Input;
 using Robust.Client.Interfaces.State;
-using Robust.Client.Interfaces.UserInterface;
 using Robust.Client.Player;
 using Robust.Shared.ContentPack;
+using Robust.Shared.Interfaces.Configuration;
 using Robust.Shared.Interfaces.GameObjects;
 using Robust.Shared.Interfaces.Map;
 using Robust.Shared.IoC;
@@ -32,12 +44,11 @@ namespace Content.Client
 {
     public class EntryPoint : GameClient
     {
-#pragma warning disable 649
-        [Dependency] private readonly IPlayerManager _playerManager;
-        [Dependency] private readonly IBaseClient _baseClient;
-        [Dependency] private readonly IStateManager _stateManager;
-        [Dependency] private readonly IEscapeMenuOwner _escapeMenuOwner;
-#pragma warning restore 649
+        [Dependency] private readonly IPlayerManager _playerManager = default!;
+        [Dependency] private readonly IBaseClient _baseClient = default!;
+        [Dependency] private readonly IEscapeMenuOwner _escapeMenuOwner = default!;
+        [Dependency] private readonly IGameController _gameController = default!;
+        [Dependency] private readonly IStateManager _stateManager = default!;
 
         public override void Init()
         {
@@ -46,96 +57,7 @@ namespace Content.Client
 
             factory.DoAutoRegistrations();
 
-            var registerIgnore = new[]
-            {
-                "Wrenchable",
-                "AmmoBox",
-                "Breakable",
-                "Pickaxe",
-                "Interactable",
-                "Destructible",
-                "Temperature",
-                "PowerTransfer",
-                "PowerNode",
-                "PowerProvider",
-                "PowerDevice",
-                "PowerStorage",
-                "PowerGenerator",
-                "Explosive",
-                "OnUseTimerTrigger",
-                "ToolboxElectricalFill",
-                "ToolLockerFill",
-                "EmitSoundOnUse",
-                "FootstepModifier",
-                "HeatResistance",
-                "Teleportable",
-                "ItemTeleporter",
-                "Portal",
-                "EntityStorage",
-                "PlaceableSurface",
-                "Wirecutter",
-                "Screwdriver",
-                "Multitool",
-                "Wrench",
-                "Crowbar",
-                "HitscanWeapon",
-                "ProjectileWeapon",
-                "Projectile",
-                "MeleeWeapon",
-                "Storeable",
-                "Dice",
-                "Construction",
-                "Apc",
-                "Door",
-                "PoweredLight",
-                "Smes",
-                "Powercell",
-                "LightBulb",
-                "Healing",
-                "Catwalk",
-                "BallisticMagazine",
-                "BallisticBullet",
-                "HitscanWeaponCapacitor",
-                "PowerCell",
-                "WeaponCapacitorCharger",
-                "PowerCellCharger",
-                "AiController",
-                "PlayerInputMover",
-                "Computer",
-                "AsteroidRock",
-                "ResearchServer",
-                "ResearchPointSource",
-                "ResearchClient",
-                "IdCard",
-                "Access",
-                "AccessReader",
-                "IdCardConsole",
-                "Airlock",
-                "MedicalScanner",
-                "WirePlacer",
-                "Species",
-                "Drink",
-                "Food",
-                "DrinkFoodContainer",
-                "Stomach",
-                "Hunger",
-                "Thirst",
-                "Rotatable",
-                "MagicMirror",
-                "MedkitFill",
-                "FloorTile",
-                "FootstepSound",
-                "UtilityBeltClothingFill",
-                "ShuttleController",
-                "HumanInventoryController",
-                "UseDelay",
-                "Pourable",
-                "Paper",
-                "Write",
-                "Bloodstream"
-            };
-
-            foreach (var ignoreName in registerIgnore)
+            foreach (var ignoreName in IgnoredComponents.List)
             {
                 factory.RegisterIgnore(ignoreName);
             }
@@ -143,42 +65,42 @@ namespace Content.Client
             factory.Register<SharedResearchConsoleComponent>();
             factory.Register<SharedLatheComponent>();
             factory.Register<SharedSpawnPointComponent>();
-
-            factory.Register<SolutionComponent>();
-
             factory.Register<SharedVendingMachineComponent>();
             factory.Register<SharedWiresComponent>();
             factory.Register<SharedCargoConsoleComponent>();
             factory.Register<SharedReagentDispenserComponent>();
+            factory.Register<SharedChemMasterComponent>();
+            factory.Register<SharedMicrowaveComponent>();
+            factory.Register<SharedGravityGeneratorComponent>();
+            factory.Register<SharedAMEControllerComponent>();
 
             prototypes.RegisterIgnore("material");
             prototypes.RegisterIgnore("reaction"); //Chemical reactions only needed by server. Reactions checks are server-side.
+            prototypes.RegisterIgnore("gasReaction");
+            prototypes.RegisterIgnore("seed"); // Seeds prototypes are server-only.
+            prototypes.RegisterIgnore("barSign");
+            prototypes.RegisterIgnore("objective");
+            prototypes.RegisterIgnore("dataset");
 
             ClientContentIoC.Register();
 
-            if (TestingCallbacks != null)
+            foreach (var callback in TestingCallbacks)
             {
-                var cast = (ClientModuleTestingCallbacks) TestingCallbacks;
+                var cast = (ClientModuleTestingCallbacks) callback;
                 cast.ClientBeforeIoC?.Invoke();
             }
 
             IoCManager.BuildGraph();
 
+            IoCManager.Resolve<IClientAdminManager>().Initialize();
             IoCManager.Resolve<IParallaxManager>().LoadParallax();
             IoCManager.Resolve<IBaseClient>().PlayerJoinedServer += SubscribePlayerAttachmentEvents;
-
-            var stylesheet = new NanoStyle();
-
-            IoCManager.Resolve<IUserInterfaceManager>().Stylesheet = stylesheet.Stylesheet;
+            IoCManager.Resolve<IStylesheetManager>().Initialize();
+            IoCManager.Resolve<IScreenshotHook>().Initialize();
 
             IoCManager.InjectDependencies(this);
 
             _escapeMenuOwner.Initialize();
-
-            _baseClient.PlayerJoinedGame += (sender, args) =>
-            {
-                _stateManager.RequestStateChange<GameScreen>();
-            };
 
             _baseClient.PlayerJoinedServer += (sender, args) =>
             {
@@ -210,7 +132,10 @@ namespace Content.Client
         /// </summary>
         public static void DetachPlayerFromEntity(EntityDetachedEventArgs eventArgs)
         {
-            eventArgs.OldEntity.RemoveComponent<CharacterInterface>();
+            if (!eventArgs.OldEntity.Deleted)
+            {
+                eventArgs.OldEntity.RemoveComponent<CharacterInterface>();
+            }
         }
 
         public override void PostInit()
@@ -228,7 +153,41 @@ namespace Content.Client
             IoCManager.Resolve<IChatManager>().Initialize();
             IoCManager.Resolve<ISandboxManager>().Initialize();
             IoCManager.Resolve<IClientPreferencesManager>().Initialize();
-            IoCManager.Resolve<IItemSlotManager>().Initialize();
+            IoCManager.Resolve<IStationEventManager>().Initialize();
+            IoCManager.Resolve<IAdminMenuManager>().Initialize();
+            IoCManager.Resolve<EuiManager>().Initialize();
+            IoCManager.Resolve<AlertManager>().Initialize();
+
+            _baseClient.RunLevelChanged += (sender, args) =>
+            {
+                if (args.NewLevel == ClientRunLevel.Initialize)
+                {
+                    SwitchToDefaultState(args.OldLevel == ClientRunLevel.Connected ||
+                                         args.OldLevel == ClientRunLevel.InGame);
+                }
+            };
+
+            SwitchToDefaultState();
+        }
+
+        private void SwitchToDefaultState(bool disconnected = false)
+        {
+            // Fire off into state dependent on launcher or not.
+
+            if (_gameController.LaunchState.FromLauncher)
+            {
+                _stateManager.RequestStateChange<LauncherConnecting>();
+                var state = (LauncherConnecting) _stateManager.CurrentState;
+
+                if (disconnected)
+                {
+                    state.SetDisconnected();
+                }
+            }
+            else
+            {
+                _stateManager.RequestStateChange<MainScreen>();
+            }
         }
 
         public override void Update(ModUpdateLevel level, FrameEventArgs frameEventArgs)
@@ -239,7 +198,6 @@ namespace Content.Client
             {
                 case ModUpdateLevel.FramePreEngine:
                     IoCManager.Resolve<IClientNotifyManager>().FrameUpdate(frameEventArgs);
-                    IoCManager.Resolve<IClientGameTicker>().FrameUpdate(frameEventArgs);
                     IoCManager.Resolve<IChatManager>().FrameUpdate(frameEventArgs);
                     break;
             }

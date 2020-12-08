@@ -3,21 +3,17 @@
   <PropertyGroup>
     <!-- Work around https://github.com/dotnet/project-system/issues/4314 -->
     <TargetFramework>$(TargetFramework)</TargetFramework>
-    <LangVersion>8</LangVersion>
+    <LangVersion>9</LangVersion>
     <IsPackable>false</IsPackable>
-    <Platforms>x64</Platforms>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <OutputPath>..\bin\Content.Client\</OutputPath>
     <OutputType Condition="'$(FullRelease)' != 'True'">Exe</OutputType>
+    <WarningsAsErrors>CS8604;CS8765;CS8632;CS8622</WarningsAsErrors>
   </PropertyGroup>
   <Import Project="..\RobustToolbox\MSBuild\Robust.DefineConstants.targets" />
   <ItemGroup>
-    <PackageReference Include="Nett" Version="0.13.0" />
-    <PackageReference Include="SixLabors.Core" Version="1.0.0-beta0007" />
-    <PackageReference Include="SixLabors.ImageSharp" Version="1.0.0-beta0006" />
-    <PackageReference Include="System.ValueTuple" Version="4.5.0" />
-    <PackageReference Include="YamlDotNet" Version="8.1.0" />
-    <PackageReference Include="SharpZipLib" Version="1.2.0" />
+    <PackageReference Include="Nett" Version="0.15.0" />
+    <PackageReference Include="JetBrains.Annotations" Version="2020.1.0" PrivateAssets="All" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\RobustToolbox\Lidgren.Network\Lidgren.Network.csproj" />
@@ -25,6 +21,17 @@
     <ProjectReference Include="..\RobustToolbox\Robust.Shared\Robust.Shared.csproj" />
     <ProjectReference Include="..\RobustToolbox\Robust.Client\Robust.Client.csproj" />
     <ProjectReference Include="..\Content.Shared\Content.Shared.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Update="UserInterface\OptionsMenu.Graphics.cs">
+      <DependentUpon>OptionsMenu.cs</DependentUpon>
+    </Compile>
+    <Compile Update="UserInterface\OptionsMenu.KeyRebind.cs">
+      <DependentUpon>OptionsMenu.cs</DependentUpon>
+    </Compile>
+    <Compile Update="UserInterface\OptionsMenu.Audio.cs">
+      <DependentUpon>OptionsMenu.cs</DependentUpon>
+    </Compile>
   </ItemGroup>
   <Import Project="..\RobustToolbox\MSBuild\Robust.Engine.targets" />
   <Target Name="ContentAfterBuild" DependsOnTargets="ClientAfterBuild" AfterTargets="Build" />

@@ -1,10 +1,14 @@
-﻿using Content.Server.GameObjects;
+﻿using Content.Server.GameObjects.Components.Atmos;
+using Content.Server.GameObjects.Components.Mobs;
 using Content.Server.GameObjects.Components.Nutrition;
-using Content.Shared.GameObjects;
+using Content.Shared.GameObjects.Components.Damage;
+using Content.Shared.GameObjects.Components.Mobs.State;
+using Content.Shared.GameObjects.Verbs;
 using Robust.Server.Console;
 using Robust.Server.Interfaces.GameObjects;
 using Robust.Shared.Interfaces.GameObjects;
 using Robust.Shared.IoC;
+using Robust.Shared.Localization;
 
 namespace Content.Server.GlobalVerbs
 {
@@ -12,24 +16,32 @@ namespace Content.Server.GlobalVerbs
     ///     Completely removes all damage from the DamageableComponent (heals the mob).
     /// </summary>
     [GlobalVerb]
-    class RejuvenateVerb : GlobalVerb
+    public class RejuvenateVerb : GlobalVerb
     {
-        public override string GetText(IEntity user, IEntity target) => "Rejuvenate";
         public override bool RequireInteractionRange => false;
+        public override bool BlockedByContainers => false;
 
-        public override VerbVisibility GetVisibility(IEntity user, IEntity target)
+        public override void GetData(IEntity user, IEntity target, VerbData data)
         {
+            data.Text = Loc.GetString("Rejuvenate");
+            data.CategoryData = VerbCategories.Debug;
+            data.Visibility = VerbVisibility.Invisible;
+
             var groupController = IoCManager.Resolve<IConGroupController>();
 
             if (user.TryGetComponent<IActorComponent>(out var player))
             {
-                if (!target.HasComponent<DamageableComponent>() && !target.HasComponent<HungerComponent>() && !target.HasComponent<ThirstComponent>())
-                    return VerbVisibility.Invisible;
+                if (!target.HasComponent<IDamageableComponent>() && !target.HasComponent<HungerComponent>() &&
+                    !target.HasComponent<ThirstComponent>())
+                {
+                    return;
+                }
 
                 if (groupController.CanCommand(player.playerSession, "rejuvenate"))
-                    return VerbVisibility.Visible;
+                {
+                    data.Visibility = VerbVisibility.Visible;
+                }
             }
-            return VerbVisibility.Invisible;
         }
 
         public override void Activate(IEntity user, IEntity target)
@@ -40,21 +52,43 @@ namespace Content.Server.GlobalVerbs
                 if (groupController.CanCommand(player.playerSession, "rejuvenate"))
                     PerformRejuvenate(target);
             }
-
         }
+
         public static void PerformRejuvenate(IEntity target)
         {
-            if (target.TryGetComponent(out DamageableComponent damage))
+            if (target.TryGetComponent(out IDamageableComponent damage))
             {
-                damage.HealAllDamage();
+                damage.Heal();
             }
+
+            if (target.TryGetComponent(out IMobStateComponent mobState))
+            {
+                mobState.UpdateState(0);
+            }
+
             if (target.TryGetComponent(out HungerComponent hunger))
             {
                 hunger.ResetFood();
             }
+
             if (target.TryGetComponent(out ThirstComponent thirst))
             {
                 thirst.ResetThirst();
+            }
+
+            if (target.TryGetComponent(out StunnableComponent stun))
+            {
+                stun.ResetStuns();
+            }
+
+            if (target.TryGetComponent(out FlammableComponent flammable))
+            {
+                flammable.Extinguish();
+            }
+
+            if (target.TryGetComponent(out CreamPiedComponent creamPied))
+            {
+                creamPied.Wash();
             }
         }
     }

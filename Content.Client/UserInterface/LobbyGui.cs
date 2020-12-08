@@ -1,5 +1,6 @@
-using Content.Client.Chat;
+﻿using Content.Client.Chat;
 using Content.Client.Interfaces;
+using Content.Client.UserInterface.Stylesheets;
 using Content.Client.Utility;
 using Robust.Client.Graphics.Drawing;
 using Robust.Client.Interfaces.ResourceManagement;
@@ -17,14 +18,14 @@ namespace Content.Client.UserInterface
         public Label StartTime { get; }
         public Button ReadyButton { get; }
         public Button ObserveButton { get; }
+        public Button OptionsButton { get; }
         public Button LeaveButton { get; }
         public ChatBox Chat { get; }
-        public ItemList OnlinePlayerItemList { get; }
+        public LobbyPlayerList OnlinePlayerList { get; }
         public ServerInfo ServerInfo { get; }
         public LobbyCharacterPreviewPanel CharacterPreview { get; }
 
         public LobbyGui(IEntityManager entityManager,
-            ILocalizationManager localization,
             IResourceCache resourceCache,
             IClientPreferencesManager preferencesManager)
         {
@@ -38,7 +39,7 @@ namespace Content.Client.UserInterface
 
             AddChild(margin);
 
-            var panelTex = resourceCache.GetTexture("/Nano/button.svg.96dpi.png");
+            var panelTex = resourceCache.GetTexture("/Textures/Interface/Nano/button.svg.96dpi.png");
             var back = new StyleBoxTexture
             {
                 Texture = panelTex,
@@ -69,28 +70,29 @@ namespace Content.Client.UserInterface
                         {
                             new Label
                             {
-                                Text = localization.GetString("Lobby"),
-                                StyleClasses = {NanoStyle.StyleClassLabelHeadingBigger},
-                                /*MarginBottom = 40,
-                                MarginLeft = 8,*/
+                                Text = Loc.GetString("Lobby"),
+                                StyleClasses = {StyleNano.StyleClassLabelHeadingBigger},
                                 VAlign = Label.VAlignMode.Center
                             }
                         }
                     },
                     (ServerName = new Label
                     {
-                        StyleClasses = {NanoStyle.StyleClassLabelHeadingBigger},
-                        /*MarginBottom = 40,
-                        GrowHorizontal = GrowDirection.Both,*/
+                        StyleClasses = {StyleNano.StyleClassLabelHeadingBigger},
                         VAlign = Label.VAlignMode.Center,
                         SizeFlagsHorizontal = SizeFlags.Expand | SizeFlags.ShrinkCenter
+                    }),
+                    (OptionsButton = new Button
+                    {
+                        SizeFlagsHorizontal = SizeFlags.ShrinkEnd,
+                        Text = Loc.GetString("Options"),
+                        StyleClasses = {StyleNano.StyleClassButtonBig},
                     }),
                     (LeaveButton = new Button
                     {
                         SizeFlagsHorizontal = SizeFlags.ShrinkEnd,
-                        Text = localization.GetString("Leave"),
-                        StyleClasses = {NanoStyle.StyleClassButtonBig},
-                        //GrowHorizontal = GrowDirection.Begin
+                        Text = Loc.GetString("Leave"),
+                        StyleClasses = {StyleNano.StyleClassButtonBig},
                     })
                 }
             };
@@ -101,7 +103,7 @@ namespace Content.Client.UserInterface
             {
                 PanelOverride = new StyleBoxFlat
                 {
-                    BackgroundColor = NanoStyle.NanoGold,
+                    BackgroundColor = StyleNano.NanoGold,
                     ContentMarginTopOverride = 2
                 },
             });
@@ -115,7 +117,6 @@ namespace Content.Client.UserInterface
 
             CharacterPreview = new LobbyCharacterPreviewPanel(
                 entityManager,
-                localization,
                 preferencesManager)
             {
                 SizeFlagsHorizontal = SizeFlags.None
@@ -147,21 +148,21 @@ namespace Content.Client.UserInterface
                                         {
                                             (ObserveButton = new Button
                                             {
-                                                Text = localization.GetString("Observe"),
-                                                StyleClasses = {NanoStyle.StyleClassButtonBig}
+                                                Text = Loc.GetString("Observe"),
+                                                StyleClasses = {StyleNano.StyleClassButtonBig}
                                             }),
                                             (StartTime = new Label
                                             {
                                                 SizeFlagsHorizontal = SizeFlags.FillExpand,
                                                 Align = Label.AlignMode.Right,
                                                 FontColorOverride = Color.DarkGray,
-                                                StyleClasses = {NanoStyle.StyleClassLabelBig}
+                                                StyleClasses = {StyleNano.StyleClassLabelBig}
                                             }),
                                             (ReadyButton = new Button
                                             {
                                                 ToggleMode = true,
-                                                Text = localization.GetString("Ready Up"),
-                                                StyleClasses = {NanoStyle.StyleClassButtonBig}
+                                                Text = Loc.GetString("Ready Up"),
+                                                StyleClasses = {StyleNano.StyleClassButtonBig}
                                             }),
                                         }
                                     }
@@ -181,7 +182,7 @@ namespace Content.Client.UserInterface
                         {
                             (Chat = new ChatBox
                             {
-                                Input = {PlaceHolder = localization.GetString("Say something!")}
+                                Input = {PlaceHolder = Loc.GetString("Say something!")}
                             })
                         }
                     },
@@ -190,7 +191,7 @@ namespace Content.Client.UserInterface
 
             hBox.AddChild(new PanelContainer
             {
-                PanelOverride = new StyleBoxFlat {BackgroundColor = NanoStyle.NanoGold}, CustomMinimumSize = (2, 0)
+                PanelOverride = new StyleBoxFlat {BackgroundColor = StyleNano.NanoGold}, CustomMinimumSize = (2, 0)
             });
 
             {
@@ -201,7 +202,7 @@ namespace Content.Client.UserInterface
                     {
                         new NanoHeading
                         {
-                            Text = localization.GetString("Online Players"),
+                            Text = Loc.GetString("Online Players"),
                         },
                         new MarginContainer
                         {
@@ -212,12 +213,24 @@ namespace Content.Client.UserInterface
                             MarginBottomOverride = 3,
                             Children =
                             {
-                                (OnlinePlayerItemList = new ItemList())
+                                new HBoxContainer
+                                {
+                                    SizeFlagsHorizontal = SizeFlags.FillExpand,
+                                    CustomMinimumSize = (50,50),
+                                    Children =
+                                    {
+                                        (OnlinePlayerList = new LobbyPlayerList
+                                        {
+                                            SizeFlagsVertical = SizeFlags.FillExpand,
+                                            SizeFlagsHorizontal = SizeFlags.FillExpand,
+                                        })
+                                    }
+                                }
                             }
                         },
                         new NanoHeading
                         {
-                            Text = localization.GetString("Server Info"),
+                            Text = Loc.GetString("Server Info"),
                         },
                         new MarginContainer
                         {
@@ -228,12 +241,90 @@ namespace Content.Client.UserInterface
                             MarginBottomOverride = 2,
                             Children =
                             {
-                                (ServerInfo = new ServerInfo(localization))
+                                (ServerInfo = new ServerInfo())
                             }
                         },
                     }
                 });
             }
+        }
+    }
+
+    public class LobbyPlayerList : Control
+    {
+        private readonly ScrollContainer _scroll;
+        private readonly VBoxContainer _vBox;
+
+        public LobbyPlayerList()
+        {
+            var panel = new PanelContainer()
+            {
+                PanelOverride = new StyleBoxFlat { BackgroundColor = Color.FromHex("#202028") },
+            };
+            _vBox = new VBoxContainer();
+            _scroll = new ScrollContainer();
+            _scroll.AddChild(_vBox);
+            panel.AddChild(_scroll);
+            AddChild(panel);
+        }
+
+        // Adds a row
+        public void AddItem(string name, string status)
+        {
+            var hbox = new HBoxContainer
+            {
+                SizeFlagsHorizontal = SizeFlags.FillExpand,
+            };
+
+            // Player Name
+            hbox.AddChild(new PanelContainer()
+            {
+                PanelOverride = new StyleBoxFlat
+                {
+                    BackgroundColor = Color.FromHex("#373744"),
+                    ContentMarginBottomOverride = 2,
+                    ContentMarginLeftOverride = 4,
+                    ContentMarginRightOverride = 4,
+                    ContentMarginTopOverride = 2
+                },
+                Children =
+                {
+                    new Label
+                    {
+                        Text = name
+                    }
+                },
+                SizeFlagsHorizontal = SizeFlags.FillExpand
+            });
+            // Status
+            hbox.AddChild(new PanelContainer()
+            {
+                PanelOverride = new StyleBoxFlat
+                {
+                    BackgroundColor = Color.FromHex("#373744"),
+                    ContentMarginBottomOverride = 2,
+                    ContentMarginLeftOverride = 4,
+                    ContentMarginRightOverride = 4,
+                    ContentMarginTopOverride = 2
+                },
+                Children =
+                {
+                    new Label
+                    {
+                        Text = status
+                    }
+                },
+                SizeFlagsHorizontal = SizeFlags.FillExpand,
+                SizeFlagsStretchRatio = 0.2f,
+            });
+
+            _vBox.AddChild(hbox);
+        }
+
+        // Deletes all rows
+        public void Clear()
+        {
+            _vBox.RemoveAllChildren();
         }
     }
 }

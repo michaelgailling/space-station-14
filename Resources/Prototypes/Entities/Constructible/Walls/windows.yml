@@ -1,0 +1,115 @@
+﻿- type: entity
+  id: Window
+  name: window
+  description: Don't smudge up the glass down there.
+  placement:
+    mode: SnapgridCenter
+    snap:
+    - Window
+  components:
+  - type: Clickable
+  - type: RCDDeconstructWhitelist
+  - type: InteractionOutline
+  - type: Sprite
+    color: "#DDDDDD"
+    netsync: false
+    drawdepth: WallTops
+    sprite: Constructible/Structures/Windows/window.rsi
+  - type: Icon
+    sprite: Constructible/Structures/Windows/window.rsi
+    state: full
+  - type: Physics
+    shapes:
+    - !type:PhysShapeAabb
+      layer:
+      - Impassable
+      - MobImpassable
+      - VaultImpassable
+      - SmallImpassable
+  - type: Damageable
+    resistances: metallicResistances
+  - type: Destructible
+    thresholds:
+      15:
+        SoundCollection: WindowBreak
+        Spawn:
+          ShardGlass:
+            Min: 1
+            Max: 2
+        Acts: ["Destruction"]
+  - type: SnapGrid
+    offset: Center
+  - type: Airtight
+  - type: Window
+    base: window
+    maxDamage: 15
+  - type: Construction
+    graph: window
+    node: window
+  - type: Appearance
+    visuals:
+    - type: WindowVisualizer
+
+- type: entity
+  id: ReinforcedWindow
+  name: reinforced window
+  parent: Window
+  components:
+  - type: Sprite
+    drawdepth: WallTops
+    sprite: Constructible/Structures/Windows/reinforced_window.rsi
+  - type: Icon
+    sprite: Constructible/Structures/Windows/reinforced_window.rsi
+  - type: Damageable
+    resistances: metallicResistances
+  - type: Destructible
+    thresholds:
+      75:
+        SoundCollection: WindowBreak
+        Spawn:
+          ShardGlassReinforced:
+            Min: 1
+            Max: 2
+        Acts: ["Destruction"]
+  - type: Window
+    base: rwindow
+    maxDamage: 75
+  - type: Construction
+    graph: window
+    node: reinforcedWindow
+
+- type: entity
+  id: PhoronWindow
+  name: phoronwindow
+  parent: Window
+  components:
+  - type: Sprite
+    drawdepth: WallTops
+    sprite: Constructible/Structures/Windows/phoron_window.rsi
+  - type: Icon
+    sprite: Constructible/Structures/Windows/phoron_window.rsi
+  - type: Damageable
+    resistances: metallicResistances
+  - type: Destructible
+    thresholds:
+      100:
+        SoundCollection: WindowBreak
+        Spawn:
+          ShardGlassPhoron:
+            Min: 1
+            Max: 2
+        Acts: ["Destruction"]
+    resistances: metallicResistances
+  - type: Window
+    base: pwindow
+    maxDamage: 100
+  - type: Construction
+    graph: window
+    node: phoronWindow
+
+- type: soundCollection
+  id: WindowBreak
+  files:
+  - /Audio/Effects/glass_break1.ogg
+  - /Audio/Effects/glass_break2.ogg
+  - /Audio/Effects/glass_break3.ogg

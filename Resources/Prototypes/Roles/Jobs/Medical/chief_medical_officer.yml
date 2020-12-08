@@ -1,0 +1,28 @@
+# Best job.
+
+- type: job
+  id: ChiefMedicalOfficer
+  name: "chief medical officer"
+  head: true
+  positions: 1
+  startingGear: CMOGear
+  department:
+  - Command
+  - Medical
+  icon: "ChiefMedicalOfficer"
+  access:
+  - Medical
+  - ChiefMedicalOfficer
+  - Command
+  - Maintenance
+
+- type: startingGear
+  id: CMOGear
+  equipment:
+    innerclothing: ClothingUniformJumpsuitCMO
+    backpack: ClothingBackpackMedicalFilled
+    shoes: ClothingShoesColorBrown
+    outerclothing: ClothingOuterCoatLabCmo
+    idcard: CMOPDA
+    ears: ClothingHeadsetAltMedical
+    belt: ClothingBeltMedical

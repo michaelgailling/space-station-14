@@ -1,6 +1,6 @@
 using System;
 using System.Linq;
-using Content.Client.UserInterface;
+using Content.Client.UserInterface.Stylesheets;
 using Content.Shared.Preferences.Appearance;
 using JetBrains.Annotations;
 using Robust.Client.GameObjects.Components.UserInterface;
@@ -71,7 +71,7 @@ namespace Content.Client.GameObjects.Components
     {
         public override void Populate()
         {
-            var humanFacialHairRSIPath = SharedSpriteComponent.TextureRoot / "Mob/human_facial_hair.rsi";
+            var humanFacialHairRSIPath = SharedSpriteComponent.TextureRoot / "Mobs/Customization/human_facial_hair.rsi";
             var humanFacialHairRSI = ResC.GetResource<RSIResource>(humanFacialHairRSIPath).RSI;
 
             var styles = HairStyles.FacialHairStylesMap.ToList();
@@ -126,9 +126,9 @@ namespace Content.Client.GameObjects.Components
             var vBox = new VBoxContainer();
             AddChild(vBox);
 
-            vBox.AddChild(_colorSliderR = new ColorSlider(NanoStyle.StyleClassSliderRed));
-            vBox.AddChild(_colorSliderG = new ColorSlider(NanoStyle.StyleClassSliderGreen));
-            vBox.AddChild(_colorSliderB = new ColorSlider(NanoStyle.StyleClassSliderBlue));
+            vBox.AddChild(_colorSliderR = new ColorSlider(StyleNano.StyleClassSliderRed));
+            vBox.AddChild(_colorSliderG = new ColorSlider(StyleNano.StyleClassSliderGreen));
+            vBox.AddChild(_colorSliderB = new ColorSlider(StyleNano.StyleClassSliderBlue));
 
             Action colorValueChanged = ColorValueChanged;
             _colorSliderR.OnValueChanged += colorValueChanged;
@@ -159,7 +159,7 @@ namespace Content.Client.GameObjects.Components
 
         public virtual void Populate()
         {
-            var humanHairRSIPath = SharedSpriteComponent.TextureRoot / "Mob/human_hair.rsi";
+            var humanHairRSIPath = SharedSpriteComponent.TextureRoot / "Mobs/Customization/human_hair.rsi";
             var humanHairRSI = ResC.GetResource<RSIResource>(humanHairRSIPath).RSI;
 
             var styles = HairStyles.HairStylesMap.ToList();
@@ -243,7 +243,7 @@ namespace Content.Client.GameObjects.Components
 
                     if (int.TryParse(ev.Text, out var result))
                     {
-                        result = result.Clamp(0, byte.MaxValue);
+                        result = MathHelper.Clamp(result, 0, byte.MaxValue);
 
                         _ignoreEvents = true;
                         _colorValue = (byte) result;

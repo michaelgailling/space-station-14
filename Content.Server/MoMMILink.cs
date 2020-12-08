@@ -1,12 +1,11 @@
 using System;
-using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
 using Content.Server.Interfaces;
 using Content.Server.Interfaces.Chat;
-using Microsoft.AspNetCore.Http;
+using Content.Shared;
 using Newtonsoft.Json;
 using Robust.Server.Interfaces.ServerStatus;
 using Robust.Server.ServerStatus;
@@ -14,26 +13,20 @@ using Robust.Shared.Asynchronous;
 using Robust.Shared.Interfaces.Configuration;
 using Robust.Shared.IoC;
 using Robust.Shared.Log;
-using Robust.Shared.Utility;
 
 namespace Content.Server
 {
     internal sealed class MoMMILink : IMoMMILink, IPostInjectInit
     {
-#pragma warning disable 649
-        [Dependency] private readonly IConfigurationManager _configurationManager;
-        [Dependency] private readonly IStatusHost _statusHost;
-        [Dependency] private readonly IChatManager _chatManager;
-        [Dependency] private readonly ITaskManager _taskManager;
-#pragma warning restore 649
+        [Dependency] private readonly IConfigurationManager _configurationManager = default!;
+        [Dependency] private readonly IStatusHost _statusHost = default!;
+        [Dependency] private readonly IChatManager _chatManager = default!;
+        [Dependency] private readonly ITaskManager _taskManager = default!;
 
-        private readonly HttpClient _httpClient = new HttpClient();
+        private readonly HttpClient _httpClient = new();
 
         void IPostInjectInit.PostInject()
         {
-            _configurationManager.RegisterCVar<string>("status.mommiurl", null);
-            _configurationManager.RegisterCVar<string>("status.mommipassword", null);
-
             _statusHost.AddHandler(_handleChatPost);
         }
 
@@ -50,8 +43,8 @@ namespace Content.Server
 
         private async Task _sendMessageInternal(string type, object messageObject)
         {
-            var url = _configurationManager.GetCVar<string>("status.mommiurl");
-            var password = _configurationManager.GetCVar<string>("status.mommipassword");
+            var url = _configurationManager.GetCVar(CCVars.StatusMoMMIUrl);
+            var password = _configurationManager.GetCVar(CCVars.StatusMoMMIPassword);
             if (string.IsNullOrWhiteSpace(url))
             {
                 return;
@@ -80,29 +73,23 @@ namespace Content.Server
             }
         }
 
-        private bool _handleChatPost(HttpMethod method, HttpRequest request, HttpResponse response)
+        private bool _handleChatPost(HttpMethod method, HttpListenerRequest request, HttpListenerResponse response)
         {
-            if (method != HttpMethod.Post || request.Path != "/ooc")
+            if (method != HttpMethod.Post || request.Url!.AbsolutePath != "/ooc")
             {
                 return false;
             }
 
-            var password = _configurationManager.GetCVar<string>("status.mommipassword");
-            OOCPostMessage message;
+            var password = _configurationManager.GetCVar(CCVars.StatusMoMMIPassword);
 
-            using (var streamReader = new StreamReader(request.Body, EncodingHelpers.UTF8))
-            using (var jsonReader = new JsonTextReader(streamReader))
+            OOCPostMessage message = null;
+            try
             {
-                var serializer = new JsonSerializer();
-                try
-                {
-                    message = serializer.Deserialize<OOCPostMessage>(jsonReader);
-                }
-                catch (JsonSerializationException)
-                {
-                    response.StatusCode = (int) HttpStatusCode.BadRequest;
-                    return true;
-                }
+                message = request.GetFromJson<OOCPostMessage>();
+            }
+            catch (JsonSerializationException)
+            {
+                // message null so enters block down below.
             }
 
             if (message == null)

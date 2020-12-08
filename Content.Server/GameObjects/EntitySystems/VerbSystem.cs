@@ -1,44 +1,93 @@
-﻿using System.Collections.Generic;
+﻿#nullable enable
+using System.Collections.Generic;
 using System.Reflection;
-using Content.Shared.GameObjects;
+using Content.Shared.GameObjects.EntitySystemMessages;
+using Content.Shared.GameObjects.Verbs;
+using Content.Shared.GameTicking;
 using Robust.Server.Interfaces.Player;
-using Robust.Shared.GameObjects.Systems;
+using Robust.Server.Player;
+using Robust.Shared.Enums;
+using Robust.Shared.GameObjects;
 using Robust.Shared.Interfaces.GameObjects;
 using Robust.Shared.IoC;
+using Robust.Shared.Log;
 using static Content.Shared.GameObjects.EntitySystemMessages.VerbSystemMessages;
 
 namespace Content.Server.GameObjects.EntitySystems
 {
-    public class VerbSystem : EntitySystem
+    public class VerbSystem : SharedVerbSystem, IResettingEntitySystem
     {
-        #pragma warning disable 649
-        [Dependency] private readonly IEntityManager _entityManager;
-        [Dependency] private readonly IPlayerManager _playerManager;
-        #pragma warning restore 649
+        [Dependency] private readonly IPlayerManager _playerManager = default!;
+
+        private readonly HashSet<IPlayerSession> _seesThroughContainers = new();
 
         public override void Initialize()
         {
             base.Initialize();
 
+            IoCManager.InjectDependencies(this);
+
             SubscribeNetworkEvent<RequestVerbsMessage>(RequestVerbs);
             SubscribeNetworkEvent<UseVerbMessage>(UseVerb);
 
-            IoCManager.InjectDependencies(this);
+            _playerManager.PlayerStatusChanged += PlayerStatusChanged;
         }
 
-        private void UseVerb(UseVerbMessage use)
+        private void PlayerStatusChanged(object? sender, SessionStatusEventArgs args)
         {
-            var channel = use.NetChannel;
-            if(channel == null)
-                return;
+            if (args.NewStatus == SessionStatus.Disconnected)
+            {
+                _seesThroughContainers.Remove(args.Session);
+            }
+        }
 
-            if (!_entityManager.TryGetEntity(use.EntityUid, out var entity))
+        public void Reset()
+        {
+            _seesThroughContainers.Clear();
+        }
+
+        public void AddContainerVisibility(IPlayerSession session)
+        {
+            if (!_seesThroughContainers.Add(session))
             {
                 return;
             }
 
-            var session = _playerManager.GetSessionByChannel(channel);
+            var message = new PlayerContainerVisibilityMessage(true);
+            RaiseNetworkEvent(message, session.ConnectedClient);
+        }
+
+        public void RemoveContainerVisibility(IPlayerSession session)
+        {
+            if (!_seesThroughContainers.Remove(session))
+            {
+                return;
+            }
+
+            var message = new PlayerContainerVisibilityMessage(false);
+            RaiseNetworkEvent(message, session.ConnectedClient);
+        }
+
+        public bool HasContainerVisibility(IPlayerSession session)
+        {
+            return _seesThroughContainers.Contains(session);
+        }
+
+        private void UseVerb(UseVerbMessage use, EntitySessionEventArgs eventArgs)
+        {
+            if (!EntityManager.TryGetEntity(use.EntityUid, out var entity))
+            {
+                return;
+            }
+
+            var session = eventArgs.SenderSession;
             var userEntity = session.AttachedEntity;
+
+            if (userEntity == null)
+            {
+                Logger.Warning($"{nameof(UseVerb)} called by player {session} with no attached entity.");
+                return;
+            }
 
             foreach (var (component, verb) in VerbUtility.GetVerbs(entity))
             {
@@ -47,14 +96,9 @@ namespace Content.Server.GameObjects.EntitySystems
                     continue;
                 }
 
-                if (verb.RequireInteractionRange)
+                if (!VerbUtility.VerbAccessChecks(userEntity, entity, verb))
                 {
-                    var distanceSquared = (userEntity.Transform.WorldPosition - entity.Transform.WorldPosition)
-                        .LengthSquared;
-                    if (distanceSquared > VerbUtility.InteractionRangeSquared)
-                    {
-                        break;
-                    }
+                    break;
                 }
 
                 verb.Activate(userEntity, component);
@@ -68,14 +112,9 @@ namespace Content.Server.GameObjects.EntitySystems
                     continue;
                 }
 
-                if (globalVerb.RequireInteractionRange)
+                if (!VerbUtility.VerbAccessChecks(userEntity, entity, globalVerb))
                 {
-                    var distanceSquared = (userEntity.Transform.WorldPosition - entity.Transform.WorldPosition)
-                        .LengthSquared;
-                    if (distanceSquared > VerbUtility.InteractionRangeSquared)
-                    {
-                        break;
-                    }
+                    break;
                 }
 
                 globalVerb.Activate(userEntity, entity);
@@ -83,49 +122,63 @@ namespace Content.Server.GameObjects.EntitySystems
             }
         }
 
-        private void RequestVerbs(RequestVerbsMessage req)
+        private void RequestVerbs(RequestVerbsMessage req, EntitySessionEventArgs eventArgs)
         {
-            var channel = req.NetChannel;
-            if (channel == null)
-                return;
+            var player = (IPlayerSession) eventArgs.SenderSession;
 
-            if (!_entityManager.TryGetEntity(req.EntityUid, out var entity))
+            if (!EntityManager.TryGetEntity(req.EntityUid, out var entity))
+            {
+                Logger.Warning($"{nameof(RequestVerbs)} called on a nonexistant entity with id {req.EntityUid} by player {player}.");
+                return;
+            }
+
+            var userEntity = player.AttachedEntity;
+
+            if (userEntity == null)
+            {
+                Logger.Warning($"{nameof(UseVerb)} called by player {player} with no attached entity.");
+                return;
+            }
+
+            if (!TryGetContextEntities(userEntity, entity.Transform.MapPosition, out var entities, true) || !entities.Contains(entity))
             {
                 return;
             }
 
-            var session = _playerManager.GetSessionByChannel(channel);
-            var userEntity = session.AttachedEntity;
-
-            var data = new List<VerbsResponseMessage.VerbData>();
+            var data = new List<VerbsResponseMessage.NetVerbData>();
             //Get verbs, component dependent.
             foreach (var (component, verb) in VerbUtility.GetVerbs(entity))
             {
-                if (verb.RequireInteractionRange && !VerbUtility.InVerbUseRange(userEntity, entity))
+                if (!VerbUtility.VerbAccessChecks(userEntity, entity, verb))
+                {
                     continue;
-                if (VerbUtility.IsVerbInvisible(verb, userEntity, component, out var vis))
+                }
+
+                var verbData = verb.GetData(userEntity, component);
+                if (verbData.IsInvisible)
                     continue;
 
                 // TODO: These keys being giant strings is inefficient as hell.
-                data.Add(new VerbsResponseMessage.VerbData(verb.GetText(userEntity, component),
-                    $"{component.GetType()}:{verb.GetType()}",
-                    vis == VerbVisibility.Visible));
+                data.Add(new VerbsResponseMessage.NetVerbData(verbData, $"{component.GetType()}:{verb.GetType()}"));
             }
 
             //Get global verbs. Visible for all entities regardless of their components.
             foreach (var globalVerb in VerbUtility.GetGlobalVerbs(Assembly.GetExecutingAssembly()))
             {
-                if (globalVerb.RequireInteractionRange && !VerbUtility.InVerbUseRange(userEntity, entity))
+                if (!VerbUtility.VerbAccessChecks(userEntity, entity, globalVerb))
+                {
                     continue;
-                if (VerbUtility.IsVerbInvisible(globalVerb, userEntity, entity, out var vis))
+                }
+
+                var verbData = globalVerb.GetData(userEntity, entity);
+                if (verbData.IsInvisible)
                     continue;
 
-                data.Add(new VerbsResponseMessage.VerbData(globalVerb.GetText(userEntity, entity),
-                    globalVerb.GetType().ToString(), vis == VerbVisibility.Visible));
+                data.Add(new VerbsResponseMessage.NetVerbData(verbData, globalVerb.GetType().ToString()));
             }
 
-            var response = new VerbsResponseMessage(data, req.EntityUid);
-            RaiseNetworkEvent(response, channel);
+            var response = new VerbsResponseMessage(data.ToArray(), req.EntityUid);
+            RaiseNetworkEvent(response, player.ConnectedClient);
         }
     }
 }

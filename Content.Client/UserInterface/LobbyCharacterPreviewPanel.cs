@@ -1,10 +1,11 @@
 ﻿using System.Linq;
-using Content.Client.GameObjects;
+using Content.Client.GameObjects.Components.HUD.Inventory;
 using Content.Client.GameObjects.Components.Mobs;
 using Content.Client.Interfaces;
 using Content.Shared;
-using Content.Shared.Jobs;
+using Content.Shared.GameTicking;
 using Content.Shared.Preferences;
+using Content.Shared.Roles;
 using Robust.Client.Interfaces.GameObjects.Components;
 using Robust.Client.UserInterface;
 using Robust.Client.UserInterface.Controls;
@@ -22,9 +23,10 @@ namespace Content.Client.UserInterface
         private readonly IClientPreferencesManager _preferencesManager;
         private IEntity _previewDummy;
         private readonly Label _summaryLabel;
+        private readonly VBoxContainer _loaded;
+        private readonly Label _unloaded;
 
         public LobbyCharacterPreviewPanel(IEntityManager entityManager,
-            ILocalizationManager localization,
             IClientPreferencesManager preferencesManager)
         {
             _preferencesManager = preferencesManager;
@@ -32,12 +34,12 @@ namespace Content.Client.UserInterface
 
             var header = new NanoHeading
             {
-                Text = localization.GetString("Character setup")
+                Text = Loc.GetString("Character")
             };
 
             CharacterSetupButton = new Button
             {
-                Text = localization.GetString("Customize"),
+                Text = Loc.GetString("Customize"),
                 SizeFlagsHorizontal = SizeFlags.None
             };
 
@@ -51,9 +53,13 @@ namespace Content.Client.UserInterface
             var vBox = new VBoxContainer();
 
             vBox.AddChild(header);
-            vBox.AddChild(CharacterSetupButton);
 
-            vBox.AddChild(_summaryLabel);
+            _unloaded = new Label {Text = "Your character preferences have not yet loaded, please stand by."};
+
+            _loaded = new VBoxContainer {Visible = false};
+
+            _loaded.AddChild(CharacterSetupButton);
+            _loaded.AddChild(_summaryLabel);
 
             var hBox = new HBoxContainer();
             hBox.AddChild(viewSouth);
@@ -61,11 +67,15 @@ namespace Content.Client.UserInterface
             hBox.AddChild(viewWest);
             hBox.AddChild(viewEast);
 
-            vBox.AddChild(hBox);
+            _loaded.AddChild(hBox);
 
+            vBox.AddChild(_loaded);
+            vBox.AddChild(_unloaded);
             AddChild(vBox);
 
             UpdateUI();
+
+            _preferencesManager.OnServerDataLoaded += UpdateUI;
         }
 
         public Button CharacterSetupButton { get; }
@@ -73,6 +83,8 @@ namespace Content.Client.UserInterface
         protected override void Dispose(bool disposing)
         {
             base.Dispose(disposing);
+            _preferencesManager.OnServerDataLoaded -= UpdateUI;
+
             if (!disposing) return;
             _previewDummy.Delete();
             _previewDummy = null;
@@ -80,7 +92,7 @@ namespace Content.Client.UserInterface
 
         private static SpriteView MakeSpriteView(IEntity entity, Direction direction)
         {
-            return new SpriteView
+            return new()
             {
                 Sprite = entity.GetComponent<ISpriteComponent>(),
                 OverrideDirection = direction,
@@ -90,17 +102,27 @@ namespace Content.Client.UserInterface
 
         public void UpdateUI()
         {
-            if (!(_preferencesManager.Preferences.SelectedCharacter is HumanoidCharacterProfile selectedCharacter))
+            if (!_preferencesManager.ServerDataLoaded)
             {
-                _summaryLabel.Text = string.Empty;
+                _loaded.Visible = false;
+                _unloaded.Visible = true;
             }
             else
             {
-                _summaryLabel.Text = selectedCharacter.Summary;
-                var component = _previewDummy.GetComponent<HumanoidAppearanceComponent>();
-                component.UpdateFromProfile(selectedCharacter);
+                _loaded.Visible = true;
+                _unloaded.Visible = false;
+                if (_preferencesManager.Preferences.SelectedCharacter is not HumanoidCharacterProfile selectedCharacter)
+                {
+                    _summaryLabel.Text = string.Empty;
+                }
+                else
+                {
+                    _summaryLabel.Text = selectedCharacter.Summary;
+                    var component = _previewDummy.GetComponent<HumanoidAppearanceComponent>();
+                    component.UpdateFromProfile(selectedCharacter);
 
-                GiveDummyJobClothes(_previewDummy, selectedCharacter);
+                    GiveDummyJobClothes(_previewDummy, selectedCharacter);
+                }
             }
         }
 
@@ -111,7 +133,7 @@ namespace Content.Client.UserInterface
 
             var inventory = dummy.GetComponent<ClientInventoryComponent>();
 
-            var highPriorityJob = profile.JobPriorities.SingleOrDefault(p => p.Value == JobPriority.High).Key;
+            var highPriorityJob = profile.JobPriorities.FirstOrDefault(p => p.Value == JobPriority.High).Key;
 
             var job = protoMan.Index<JobPrototype>(highPriorityJob ?? SharedGameTicker.OverflowJob);
             var gear = protoMan.Index<StartingGearPrototype>(job.StartingGear);

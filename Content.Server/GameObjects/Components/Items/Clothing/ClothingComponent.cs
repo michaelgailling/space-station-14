@@ -1,32 +1,40 @@
-// Only unused on .NET Core due to KeyValuePair.Deconstruct
-// ReSharper disable once RedundantUsingDirective
-using Robust.Shared.Utility;
-using System;
+﻿using System;
 using System.Collections.Generic;
-using Content.Server.GameObjects.EntitySystems;
+using Content.Server.GameObjects.Components.GUI;
+using Content.Server.GameObjects.Components.Items.Storage;
 using Content.Shared.GameObjects;
 using Content.Shared.GameObjects.Components.Items;
+using Content.Shared.GameObjects.Components.Storage;
+using Content.Shared.Interfaces;
+using Content.Shared.Interfaces.GameObjects.Components;
 using Robust.Shared.GameObjects;
+using Robust.Shared.Interfaces.GameObjects;
 using Robust.Shared.Serialization;
+using Robust.Shared.ViewVariables;
 using static Content.Shared.GameObjects.Components.Inventory.EquipmentSlotDefines;
 
-namespace Content.Server.GameObjects
+namespace Content.Server.GameObjects.Components.Items.Clothing
 {
     [RegisterComponent]
     [ComponentReference(typeof(ItemComponent))]
-    [ComponentReference(typeof(StoreableComponent))]
+    [ComponentReference(typeof(StorableComponent))]
+    [ComponentReference(typeof(SharedStorableComponent))]
+    [ComponentReference(typeof(IItemComponent))]
     public class ClothingComponent : ItemComponent, IUse
     {
         public override string Name => "Clothing";
         public override uint? NetID => ContentNetIDs.CLOTHING;
 
+        [ViewVariables]
         public SlotFlags SlotFlags = SlotFlags.PREVENTEQUIP; //Different from None, NONE allows equips if no slot flags are required
 
         private bool _quickEquipEnabled = true;
         private int _heatResistance;
+        [ViewVariables(VVAccess.ReadWrite)]
         public int HeatResistance => _heatResistance;
 
         private string _clothingEquippedPrefix;
+        [ViewVariables(VVAccess.ReadWrite)]
         public string ClothingEquippedPrefix
         {
             get
@@ -56,7 +64,6 @@ namespace Content.Server.GameObjects
             });
 
             serializer.DataField(ref _quickEquipEnabled, "QuickEquip", true);
-
             serializer.DataFieldCached(ref _heatResistance, "HeatResistance", 323);
         }
 
@@ -82,16 +89,38 @@ namespace Content.Server.GameObjects
                     hands.Drop(Owner);
                     inv.Unequip(slot);
                     hands.PutInHand(item);
+
+                    if (!TryEquip(inv, slot, eventArgs.User))
+                    {
+                        hands.Drop(item.Owner);
+                        inv.Equip(slot, item);
+                        hands.PutInHand(Owner.GetComponent<ItemComponent>());
+                    }
                 }
                 else
                 {
                     hands.Drop(Owner);
+                    if (!TryEquip(inv, slot, eventArgs.User))
+                        hands.PutInHand(Owner.GetComponent<ItemComponent>());
                 }
 
-                return inv.Equip(slot, this);
+                return true;
             }
 
             return false;
+        }
+
+        private bool TryEquip(InventoryComponent inv, Slots slot, IEntity user)
+        {
+            if (!inv.Equip(slot, this, true, out var reason))
+            {
+                if (reason != null)
+                    Owner.PopupMessage(user, reason);
+
+                return false;
+            }
+
+            return true;
         }
     }
 }

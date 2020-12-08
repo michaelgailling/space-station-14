@@ -1,20 +1,17 @@
-﻿using System;
-using Content.Client.GameObjects;
-using Content.Client.GameObjects.Components.Storage;
+﻿using Content.Client.GameObjects.Components.Storage;
 using Content.Client.GameObjects.EntitySystems;
-using Content.Client.Utility;
 using Content.Shared.GameObjects.Components.Items;
 using Content.Shared.Input;
+using Robust.Client.GameObjects;
 using Robust.Client.GameObjects.EntitySystems;
-using Robust.Client.Graphics;
 using Robust.Client.Interfaces.GameObjects.Components;
 using Robust.Client.Interfaces.Graphics.ClientEye;
 using Robust.Client.Interfaces.Input;
-using Robust.Client.Interfaces.ResourceManagement;
 using Robust.Client.Player;
 using Robust.Client.UserInterface;
 using Robust.Shared.Input;
 using Robust.Shared.Interfaces.GameObjects;
+using Robust.Shared.Interfaces.Map;
 using Robust.Shared.Interfaces.Timing;
 using Robust.Shared.IoC;
 using Robust.Shared.Map;
@@ -24,27 +21,13 @@ namespace Content.Client.UserInterface
 {
     public class ItemSlotManager : IItemSlotManager
     {
-#pragma warning disable 0649
-        [Dependency] private readonly IPlayerManager _playerManager;
-        [Dependency] private readonly IGameTiming _gameTiming;
-        [Dependency] private readonly IInputManager _inputManager;
-        [Dependency] private readonly IEntitySystemManager _entitySystemManager;
-        [Dependency] private readonly IEyeManager _eyeManager;
-        [Dependency] private readonly IResourceCache _resourceCache;
-#pragma warning restore 0649
-
-        private const int CooldownLevels = 8;
-
-        private readonly Texture[] _texturesCooldownOverlay = new Texture[CooldownLevels];
-
-        public void Initialize()
-        {
-            for (var i = 0; i < CooldownLevels; i++)
-            {
-                _texturesCooldownOverlay[i] =
-                    _resourceCache.GetTexture($"/Textures/UserInterface/Inventory/cooldown-{i}.png");
-            }
-        }
+        [Dependency] private readonly IPlayerManager _playerManager = default!;
+        [Dependency] private readonly IGameTiming _gameTiming = default!;
+        [Dependency] private readonly IInputManager _inputManager = default!;
+        [Dependency] private readonly IEntitySystemManager _entitySystemManager = default!;
+        [Dependency] private readonly IEntityManager _entityManager = default!;
+        [Dependency] private readonly IEyeManager _eyeManager = default!;
+        [Dependency] private readonly IMapManager _mapManager = default!;
 
         public bool SetItemSlot(ItemSlotButton button, IEntity entity)
         {
@@ -57,6 +40,8 @@ namespace Content.Client.UserInterface
             {
                 if (!entity.TryGetComponent(out ISpriteComponent sprite))
                     return false;
+
+                button.ClearHover();
                 button.SpriteView.Sprite = sprite;
                 button.StorageButton.Visible = entity.HasComponent<ClientStorageComponent>();
             }
@@ -65,8 +50,6 @@ namespace Content.Client.UserInterface
 
         public bool OnButtonPressed(GUIBoundKeyEventArgs args, IEntity item)
         {
-            args.Handle();
-
             if (item == null)
                 return false;
 
@@ -87,24 +70,33 @@ namespace Content.Client.UserInterface
                 var func = args.Function;
                 var funcId = _inputManager.NetworkBindMap.KeyFunctionID(args.Function);
 
-                var mousePosWorld = _eyeManager.ScreenToWorld(args.PointerLocation);
-                var message = new FullInputCmdMessage(_gameTiming.CurTick, funcId, BoundKeyState.Down, mousePosWorld,
-                    args.PointerLocation, item.Uid);
+
+                var mousePosWorld = _eyeManager.ScreenToMap(args.PointerLocation);
+
+                var coordinates = _mapManager.TryFindGridAt(mousePosWorld, out var grid) ? grid.MapToGrid(mousePosWorld) :
+                    EntityCoordinates.FromMap(_entityManager, _mapManager, mousePosWorld);
+
+                var message = new FullInputCmdMessage(_gameTiming.CurTick, _gameTiming.TickFraction, funcId, BoundKeyState.Down,
+                    coordinates, args.PointerLocation, item.Uid);
 
                 // client side command handlers will always be sent the local player session.
-                var session = _playerManager.LocalPlayer.Session;
+                var session = _playerManager.LocalPlayer?.Session;
+                if (session == null)
+                    return false;
+
                 inputSys.HandleInputCommand(session, func, message);
             }
             else
             {
                 return false;
             }
+            args.Handle();
             return true;
         }
 
         public void UpdateCooldown(ItemSlotButton button, IEntity entity)
         {
-            var cooldownTexture = button.CooldownCircle;
+            var cooldownDisplay = button.CooldownDisplay;
 
             if (entity != null
                 && entity.TryGetComponent(out ItemCooldownComponent cooldown)
@@ -115,31 +107,46 @@ namespace Content.Client.UserInterface
                 var end = cooldown.CooldownEnd.Value;
 
                 var length = (end - start).TotalSeconds;
-                var progress = (_gameTiming.CurTime - start).TotalSeconds;
-                var ratio = (float)(progress / length);
+                var progress = (_gameTiming.CurTime - start).TotalSeconds / length;
+                var ratio = (progress <= 1 ? (1 - progress) : (_gameTiming.CurTime - end).TotalSeconds * -5);
 
-                var textureIndex = CalculateCooldownLevel(ratio);
-                if (textureIndex == CooldownLevels)
+                cooldownDisplay.Progress = MathHelper.Clamp((float)ratio, -1, 1);
+
+                if (ratio > -1f)
                 {
-                    cooldownTexture.Visible = false;
+                    cooldownDisplay.Visible = true;
                 }
                 else
                 {
-                    cooldownTexture.Visible = true;
-                    cooldownTexture.Texture = _texturesCooldownOverlay[textureIndex];
+                    cooldownDisplay.Visible = false;
                 }
             }
             else
             {
-                cooldownTexture.Visible = false;
+                cooldownDisplay.Visible = false;
             }
         }
 
-        internal static int CalculateCooldownLevel(float cooldownValue)
+        public void HoverInSlot(ItemSlotButton button, IEntity entity, bool fits)
         {
-            var val = cooldownValue.Clamp(0, 1);
-            val *= CooldownLevels;
-            return (int)Math.Floor(val);
+            if (entity == null || !button.MouseIsHovering)
+            {
+                button.ClearHover();
+                return;
+            }
+
+            if (!entity.HasComponent<SpriteComponent>())
+            {
+                return;
+            }
+
+            // Set green / red overlay at 50% transparency
+            var hoverEntity = _entityManager.SpawnEntity("hoverentity", MapCoordinates.Nullspace);
+            var hoverSprite = hoverEntity.GetComponent<SpriteComponent>();
+            hoverSprite.CopyFrom(entity.GetComponent<SpriteComponent>());
+            hoverSprite.Color = fits ? new Color(0, 255, 0, 127) : new Color(255, 0, 0, 127);
+
+            button.HoverSpriteView.Sprite = hoverSprite;
         }
     }
 }

@@ -1,0 +1,88 @@
+- type: entity
+  parent: ClothingNeckBase
+  id: ClothingNeckCloakCap
+  name: captain's cloak
+  description: A pompous and comfy blue cloak with a nice gold trim.
+  components:
+  - type: Sprite
+    sprite: Clothing/Neck/Cloaks/cap.rsi
+  - type: Clothing
+    sprite: Clothing/Neck/Cloaks/cap.rsi
+
+- type: entity
+  parent: ClothingNeckBase
+  id: ClothingNeckCloakHos
+  name: HoS's cloak
+  description: An exquisite dark and red cloak of a Head of Security.
+  components:
+  - type: Sprite
+    sprite: Clothing/Neck/Cloaks/hos.rsi
+  - type: Clothing
+    sprite: Clothing/Neck/Cloaks/hos.rsi
+
+- type: entity
+  parent: ClothingNeckBase
+  id: ClothingNeckCloakCe
+  name: CE's cloak
+  description: A dark green cloak with light blue ornaments.
+  components:
+  - type: Sprite
+    sprite: Clothing/Neck/Cloaks/ce.rsi
+  - type: Clothing
+    sprite: Clothing/Neck/Cloaks/ce.rsi
+
+
+- type: entity
+  parent: ClothingNeckBase
+  id: CloathingCloakCmo
+  name: CMO's cloak
+  description: A sterile blue cloak with a green cross.
+  components:
+  - type: Sprite
+    sprite: Clothing/Neck/Cloaks/cmo.rsi
+  - type: Clothing
+    sprite: Clothing/Neck/Cloaks/cmo.rsi
+
+- type: entity
+  parent: ClothingNeckBase
+  id: ClothingNeckCloakRd
+  name: RD's cloak
+  description: A white cloak with violet stripes.
+  components:
+  - type: Sprite
+    sprite: Clothing/Neck/Cloaks/rd.rsi
+  - type: Clothing
+    sprite: Clothing/Neck/Cloaks/rd.rsi
+
+- type: entity
+  parent: ClothingNeckBase
+  id: ClothingNeckCloakQm
+  name: QM's cloak
+  description: A strong brown cloak with a reflective stripe.
+  components:
+  - type: Sprite
+    sprite: Clothing/Neck/Cloaks/qm.rsi
+  - type: Clothing
+    sprite: Clothing/Neck/Cloaks/qm.rsi
+
+- type: entity
+  parent: ClothingNeckBase
+  id: ClothingNeckCloakHop
+  name: HoP's cloak
+  description: A blue cloak with red shoudlers and gold buttons.
+  components:
+  - type: Sprite
+    sprite: Clothing/Neck/Cloaks/hop.rsi
+  - type: Clothing
+    sprite: Clothing/Neck/Cloaks/hop.rsi
+
+- type: entity
+  parent: ClothingNeckBase
+  id: ClothingNeckCloakHerald
+  name: Herald's cloak
+  description: An evil-looking red cloak with spikes on its shoulders.
+  components:
+  - type: Sprite
+    sprite: Clothing/Neck/Cloaks/herald.rsi
+  - type: Clothing
+    sprite: Clothing/Neck/Cloaks/herald.rsi

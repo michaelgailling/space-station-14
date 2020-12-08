@@ -1,45 +1,81 @@
+using System;
+using System.Threading.Tasks;
 using Content.Client;
 using Content.Client.Interfaces.Parallax;
 using Content.Server;
-using Content.Server.GameTicking;
 using Content.Server.Interfaces.GameTicking;
+using NUnit.Framework;
+using Robust.Server.Interfaces.Maps;
+using Robust.Server.Interfaces.Timing;
 using Robust.Shared.ContentPack;
-using Robust.Shared.Interfaces.Configuration;
+using Robust.Shared.Interfaces.Map;
+using Robust.Shared.Interfaces.Network;
 using Robust.Shared.IoC;
+using Robust.Shared.Map;
 using Robust.UnitTesting;
-using EntryPoint = Content.Client.EntryPoint;
 
 namespace Content.IntegrationTests
 {
+    [Parallelizable(ParallelScope.All)]
     public abstract class ContentIntegrationTest : RobustIntegrationTest
     {
-        protected override ClientIntegrationInstance StartClient(ClientIntegrationOptions options = null)
+        protected sealed override ClientIntegrationInstance StartClient(ClientIntegrationOptions options = null)
         {
             options ??= new ClientIntegrationOptions();
             // ReSharper disable once RedundantNameQualifier
-            options.ClientContentAssembly = typeof(EntryPoint).Assembly;
-            options.SharedContentAssembly = typeof(Shared.EntryPoint).Assembly;
+            options.ContentAssemblies = new[]
+            {
+                typeof(Shared.EntryPoint).Assembly,
+                typeof(Client.EntryPoint).Assembly,
+                typeof(ContentIntegrationTest).Assembly
+            };
+
             options.BeforeStart += () =>
             {
-                // Connecting to Discord is a massive waste of time.
-                // Basically just makes the CI logs a mess.
-                IoCManager.Resolve<IConfigurationManager>().SetCVar("discord.enabled", false);
                 IoCManager.Resolve<IModLoader>().SetModuleBaseCallbacks(new ClientModuleTestingCallbacks
                 {
                     ClientBeforeIoC = () =>
                     {
+                        if (options is ClientContentIntegrationOption contentOptions)
+                        {
+                            contentOptions.ContentBeforeIoC?.Invoke();
+                        }
+
                         IoCManager.Register<IParallaxManager, DummyParallaxManager>(true);
                     }
                 });
             };
+
+            // Connecting to Discord is a massive waste of time.
+            // Basically just makes the CI logs a mess.
+            options.CVarOverrides["discord.enabled"] = "true";
+
             return base.StartClient(options);
         }
 
         protected override ServerIntegrationInstance StartServer(ServerIntegrationOptions options = null)
         {
             options ??= new ServerIntegrationOptions();
-            options.ServerContentAssembly = typeof(Server.EntryPoint).Assembly;
-            options.SharedContentAssembly = typeof(Shared.EntryPoint).Assembly;
+            options.ContentAssemblies = new[]
+            {
+                typeof(Shared.EntryPoint).Assembly,
+                typeof(Server.EntryPoint).Assembly,
+                typeof(ContentIntegrationTest).Assembly
+            };
+            options.BeforeStart += () =>
+            {
+                IoCManager.Resolve<IModLoader>().SetModuleBaseCallbacks(new ServerModuleTestingCallbacks
+                {
+                    ServerBeforeIoC = () =>
+                    {
+                        if (options is ServerContentIntegrationOption contentOptions)
+                        {
+                            contentOptions.ContentBeforeIoC?.Invoke();
+                        }
+                    }
+                });
+            };
+
             return base.StartServer(options);
         }
 
@@ -58,6 +94,117 @@ namespace Content.IntegrationTests
             };
 
             return StartServer(options);
+        }
+
+        protected async Task<(ClientIntegrationInstance client, ServerIntegrationInstance server)>
+            StartConnectedServerClientPair(ClientIntegrationOptions clientOptions = null,
+                ServerIntegrationOptions serverOptions = null)
+        {
+            var client = StartClient(clientOptions);
+            var server = StartServer(serverOptions);
+
+            await StartConnectedPairShared(client, server);
+
+            return (client, server);
+        }
+
+
+        protected async Task<(ClientIntegrationInstance client, ServerIntegrationInstance server)>
+            StartConnectedServerDummyTickerClientPair(ClientIntegrationOptions clientOptions = null,
+                ServerIntegrationOptions serverOptions = null)
+        {
+            var client = StartClient(clientOptions);
+            var server = StartServerDummyTicker(serverOptions);
+
+            await StartConnectedPairShared(client, server);
+
+            return (client, server);
+        }
+
+        protected async Task<IMapGrid> InitializeMap(ServerIntegrationInstance server, string mapPath)
+        {
+            await server.WaitIdleAsync();
+
+            var mapManager = server.ResolveDependency<IMapManager>();
+            var pauseManager = server.ResolveDependency<IPauseManager>();
+            var mapLoader = server.ResolveDependency<IMapLoader>();
+
+            IMapGrid grid = null;
+
+            server.Post(() =>
+            {
+                var mapId = mapManager.CreateMap();
+
+                pauseManager.AddUninitializedMap(mapId);
+
+                grid = mapLoader.LoadBlueprint(mapId, mapPath);
+
+                pauseManager.DoMapInitialize(mapId);
+            });
+
+            await server.WaitIdleAsync();
+
+            return grid;
+        }
+
+        protected async Task WaitUntil(IntegrationInstance instance, Func<bool> func, int maxTicks = 600,
+            int tickStep = 1)
+        {
+            var ticksAwaited = 0;
+            bool passed;
+
+            await instance.WaitIdleAsync();
+
+            while (!(passed = func()) && ticksAwaited < maxTicks)
+            {
+                var ticksToRun = tickStep;
+
+                if (ticksAwaited + tickStep > maxTicks)
+                {
+                    ticksToRun = maxTicks - ticksAwaited;
+                }
+
+                await instance.WaitRunTicks(ticksToRun);
+
+                ticksAwaited += ticksToRun;
+            }
+
+            Assert.That(passed);
+        }
+
+        private static async Task StartConnectedPairShared(ClientIntegrationInstance client,
+            ServerIntegrationInstance server)
+        {
+            await Task.WhenAll(client.WaitIdleAsync(), server.WaitIdleAsync());
+
+            client.SetConnectTarget(server);
+
+            client.Post(() => IoCManager.Resolve<IClientNetManager>().ClientConnect(null!, 0, null!));
+
+            await RunTicksSync(client, server, 10);
+        }
+
+        /// <summary>
+        ///     Runs <paramref name="ticks"/> ticks on both server and client while keeping their main loop in sync.
+        /// </summary>
+        protected static async Task RunTicksSync(ClientIntegrationInstance client, ServerIntegrationInstance server,
+            int ticks)
+        {
+            for (var i = 0; i < ticks; i++)
+            {
+                await server.WaitRunTicks(1);
+                await client.WaitRunTicks(1);
+            }
+        }
+
+        protected sealed class ClientContentIntegrationOption : ClientIntegrationOptions
+        {
+            public Action ContentBeforeIoC { get; set; }
+        }
+
+        protected sealed class ServerContentIntegrationOption : ServerIntegrationOptions
+        {
+            public Action ContentBeforeIoC { get; set; }
         }
     }
 }

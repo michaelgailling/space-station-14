@@ -1,9 +1,16 @@
-﻿using Content.Server.Interfaces.GameObjects.Components.Movement;
-using Robust.Server.AI;
-using Robust.Server.GameObjects;
+﻿#nullable enable
+using Content.Server.AI.Utility.AiLogic;
+using Content.Server.GameObjects.EntitySystems.AI;
+using Content.Server.Interfaces.GameTicking;
+using Content.Shared.GameObjects.Components.Movement;
+using Content.Shared.Roles;
 using Robust.Shared.GameObjects;
+using Robust.Shared.GameObjects.Components;
+using Robust.Shared.GameObjects.Systems;
+using Robust.Shared.IoC;
 using Robust.Shared.Map;
 using Robust.Shared.Maths;
+using Robust.Shared.Prototypes;
 using Robust.Shared.Serialization;
 using Robust.Shared.ViewVariables;
 
@@ -12,23 +19,29 @@ namespace Content.Server.GameObjects.Components.Movement
     [RegisterComponent, ComponentReference(typeof(IMoverComponent))]
     public class AiControllerComponent : Component, IMoverComponent
     {
-        private string _logicName;
+        [Dependency] private readonly IPrototypeManager _prototypeManager = default!;
+        [Dependency] private readonly IGameTicker _gameTicker = default!;
+
+        private string? _logicName;
         private float _visionRadius;
 
         public override string Name => "AiController";
 
         [ViewVariables(VVAccess.ReadWrite)]
-        public string LogicName
+        public string? LogicName
         {
             get => _logicName;
             set
             {
                 _logicName = value;
-                Processor = null;
+                Processor = null!;
             }
         }
 
-        public AiLogicProcessor Processor { get; set; }
+        public UtilityAi? Processor { get; set; }
+
+        [ViewVariables(VVAccess.ReadWrite)]
+        public string? StartingGearPrototype { get; set; }
 
         [ViewVariables(VVAccess.ReadWrite)]
         public float VisionRadius
@@ -43,8 +56,21 @@ namespace Content.Server.GameObjects.Components.Movement
             base.Initialize();
 
             // This component requires a physics component.
-            if (!Owner.HasComponent<PhysicsComponent>())
-                Owner.AddComponent<PhysicsComponent>();
+            Owner.EnsureComponent<PhysicsComponent>();
+
+            EntitySystem.Get<AiSystem>().ProcessorInitialize(this);
+        }
+
+        protected override void Startup()
+        {
+            base.Startup();
+
+            if (StartingGearPrototype != null)
+            {
+                var startingGear = _prototypeManager.Index<StartingGearPrototype>(StartingGearPrototype);
+                _gameTicker.EquipStartingGear(Owner, startingGear);
+            }
+
         }
 
         /// <inheritdoc />
@@ -53,20 +79,19 @@ namespace Content.Server.GameObjects.Components.Movement
             base.ExposeData(serializer);
 
             serializer.DataField(ref _logicName, "logic", null);
+            serializer.DataReadWriteFunction(
+                "startingGear",
+                null,
+                startingGear => StartingGearPrototype = startingGear,
+                () => StartingGearPrototype);
             serializer.DataField(ref _visionRadius, "vision", 8.0f);
         }
 
-        /// <summary>
-        ///     Movement speed (m/s) that the entity walks, before modifiers
-        /// </summary>
-        [ViewVariables(VVAccess.ReadWrite)]
-        public float BaseWalkSpeed { get; set; } = PlayerInputMoverComponent.DefaultBaseWalkSpeed;
-
-        /// <summary>
-        ///     Movement speed (m/s) that the entity sprints, before modifiers
-        /// </summary>
-        [ViewVariables(VVAccess.ReadWrite)]
-        public float BaseSprintSpeed { get; set; } = PlayerInputMoverComponent.DefaultBaseSprintSpeed;
+        protected override void Shutdown()
+        {
+            base.Shutdown();
+            Processor?.Shutdown();
+        }
 
         /// <summary>
         ///     Movement speed (m/s) that the entity walks, after modifiers
@@ -76,14 +101,15 @@ namespace Content.Server.GameObjects.Components.Movement
         {
             get
             {
-                float speed = BaseWalkSpeed;
-                if (Owner.TryGetComponent<MovementSpeedModifierComponent>(out MovementSpeedModifierComponent component))
+                if (Owner.TryGetComponent(out MovementSpeedModifierComponent? component))
                 {
-                    speed *= component.WalkSpeedModifier;
+                    return component.CurrentWalkSpeed;
                 }
-                return speed;
+
+                return MovementSpeedModifierComponent.DefaultBaseWalkSpeed;
             }
         }
+
         /// <summary>
         ///     Movement speed (m/s) that the entity walks, after modifiers
         /// </summary>
@@ -92,20 +118,29 @@ namespace Content.Server.GameObjects.Components.Movement
         {
             get
             {
-                float speed = BaseSprintSpeed;
-                if (Owner.TryGetComponent<MovementSpeedModifierComponent>(out MovementSpeedModifierComponent component))
+                if (Owner.TryGetComponent(out MovementSpeedModifierComponent? component))
                 {
-                    speed *= component.SprintSpeedModifier;
+                    return component.CurrentSprintSpeed;
                 }
-                return speed;
+
+                return MovementSpeedModifierComponent.DefaultBaseSprintSpeed;
             }
         }
+
+        /// <inheritdoc />
+        [ViewVariables]
+        public float CurrentPushSpeed => 5.0f;
+
+        /// <inheritdoc />
+        [ViewVariables]
+        public float GrabRange => 0.2f;
+
 
         /// <summary>
         ///     Is the entity Sprinting (running)?
         /// </summary>
         [ViewVariables]
-        public bool Sprinting { get; set; }
+        public bool Sprinting { get; } = true;
 
         /// <summary>
         ///     Calculated linear velocity direction of the entity.
@@ -113,11 +148,14 @@ namespace Content.Server.GameObjects.Components.Movement
         [ViewVariables]
         public Vector2 VelocityDir { get; set; }
 
-        public GridCoordinates LastPosition { get; set; }
+        (Vector2 walking, Vector2 sprinting) IMoverComponent.VelocityDir =>
+            Sprinting ? (Vector2.Zero, VelocityDir) : (VelocityDir, Vector2.Zero);
 
-        [ViewVariables(VVAccess.ReadWrite)]
-        public float StepSoundDistance { get; set; }
+        public EntityCoordinates LastPosition { get; set; }
 
-        public void SetVelocityDirection(Direction direction, bool enabled) { }
+        [ViewVariables(VVAccess.ReadWrite)] public float StepSoundDistance { get; set; }
+
+        public void SetVelocityDirection(Direction direction, ushort subTick, bool enabled) { }
+        public void SetSprinting(ushort subTick, bool walking) { }
     }
 }

@@ -1,19 +1,19 @@
-﻿using Content.Server.Cargo;
+﻿#nullable enable
+using Content.Server.Cargo;
+using Content.Server.GameObjects.Components.Power.ApcNetComponents;
 using Content.Server.GameObjects.EntitySystems;
+using Content.Server.Utility;
 using Content.Shared.GameObjects.Components.Cargo;
+using Content.Shared.Interfaces.GameObjects.Components;
 using Content.Shared.Prototypes.Cargo;
 using Robust.Server.GameObjects.Components.UserInterface;
 using Robust.Server.Interfaces.GameObjects;
 using Robust.Shared.GameObjects;
+using Robust.Shared.GameObjects.Systems;
 using Robust.Shared.IoC;
+using Robust.Shared.Log;
 using Robust.Shared.Serialization;
 using Robust.Shared.ViewVariables;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using Robust.Shared.Map;
 
 namespace Content.Server.GameObjects.Components.Cargo
 {
@@ -21,34 +21,71 @@ namespace Content.Server.GameObjects.Components.Cargo
     [ComponentReference(typeof(IActivate))]
     public class CargoConsoleComponent : SharedCargoConsoleComponent, IActivate
     {
-#pragma warning disable 649
-        [Dependency] private readonly IGalacticBankManager _galacticBankManager;
-        [Dependency] private readonly ICargoOrderDataManager _cargoOrderDataManager;
-#pragma warning restore 649
+        [Dependency] private readonly ICargoOrderDataManager _cargoOrderDataManager = default!;
 
         [ViewVariables]
         public int Points = 1000;
 
-        private BoundUserInterface _userInterface;
+        private CargoBankAccount? _bankAccount;
 
         [ViewVariables]
-        public GalacticMarketComponent Market { get; private set; }
-        [ViewVariables]
-        public CargoOrderDatabaseComponent Orders { get; private set; }
-        [ViewVariables]
-        public int BankId { get; private set; }
+        public CargoBankAccount? BankAccount
+        {
+            get => _bankAccount;
+            private set
+            {
+                if (_bankAccount == value)
+                {
+                    return;
+                }
+
+                if (_bankAccount != null)
+                {
+                    _bankAccount.OnBalanceChange -= UpdateUIState;
+                }
+
+                _bankAccount = value;
+
+                if (value != null)
+                {
+                    value.OnBalanceChange += UpdateUIState;
+                }
+
+                UpdateUIState();
+            }
+        }
 
         private bool _requestOnly = false;
+
+        private bool Powered => !Owner.TryGetComponent(out PowerReceiverComponent? receiver) || receiver.Powered;
+        private CargoConsoleSystem _cargoConsoleSystem = default!;
+
+        [ViewVariables] private BoundUserInterface? UserInterface => Owner.GetUIOrNull(CargoConsoleUiKey.Key);
 
         public override void Initialize()
         {
             base.Initialize();
-            Market = Owner.GetComponent<GalacticMarketComponent>();
-            Orders = Owner.GetComponent<CargoOrderDatabaseComponent>();
-            _userInterface = Owner.GetComponent<ServerUserInterfaceComponent>().GetBoundUserInterface(CargoConsoleUiKey.Key);
-            _userInterface.OnReceiveMessage += UserInterfaceOnOnReceiveMessage;
-            _galacticBankManager.AddComponent(this);
-            BankId = 0;
+
+            Owner.EnsureComponentWarn(out GalacticMarketComponent _);
+            Owner.EnsureComponentWarn(out CargoOrderDatabaseComponent _);
+
+            if (UserInterface != null)
+            {
+                UserInterface.OnReceiveMessage += UserInterfaceOnOnReceiveMessage;
+            }
+
+            _cargoConsoleSystem = EntitySystem.Get<CargoConsoleSystem>();
+            BankAccount = _cargoConsoleSystem.StationAccount;
+        }
+
+        public override void OnRemove()
+        {
+            if (UserInterface != null)
+            {
+                UserInterface.OnReceiveMessage += UserInterfaceOnOnReceiveMessage;
+            }
+
+            base.OnRemove();
         }
 
         /// <summary>
@@ -63,49 +100,68 @@ namespace Content.Server.GameObjects.Components.Cargo
 
         private void UserInterfaceOnOnReceiveMessage(ServerBoundUserInterfaceMessage serverMsg)
         {
+            if (!Owner.TryGetComponent(out CargoOrderDatabaseComponent? orders))
+            {
+                return;
+            }
+
             var message = serverMsg.Message;
-            if (!Orders.ConnectedToDatabase)
+            if (!orders.ConnectedToDatabase)
+                return;
+            if (!Powered)
                 return;
             switch (message)
             {
                 case CargoConsoleAddOrderMessage msg:
                 {
-                    if (msg.Amount <= 0)
+                    if (msg.Amount <= 0 || _bankAccount == null)
+                    {
                         break;
-                    _cargoOrderDataManager.AddOrder(Orders.Database.Id, msg.Requester, msg.Reason, msg.ProductId, msg.Amount, BankId);
+                    }
+
+                    _cargoOrderDataManager.AddOrder(orders.Database.Id, msg.Requester, msg.Reason, msg.ProductId, msg.Amount, _bankAccount.Id);
                     break;
                 }
                 case CargoConsoleRemoveOrderMessage msg:
                 {
-                    _cargoOrderDataManager.RemoveOrder(Orders.Database.Id, msg.OrderNumber);
+                    _cargoOrderDataManager.RemoveOrder(orders.Database.Id, msg.OrderNumber);
                     break;
                 }
                 case CargoConsoleApproveOrderMessage msg:
                 {
                     if (_requestOnly ||
-                        !Orders.Database.TryGetOrder(msg.OrderNumber, out var order))
+                        !orders.Database.TryGetOrder(msg.OrderNumber, out var order) ||
+                        _bankAccount == null)
+                    {
                         break;
-                    _prototypeManager.TryIndex(order.ProductId, out CargoProductPrototype product);
-                    if (product == null)
+                    }
+
+                    PrototypeManager.TryIndex(order.ProductId, out CargoProductPrototype product);
+                    if (product == null!)
                         break;
-                    if (!_galacticBankManager.ChangeBalance(BankId, (-product.PointCost) * order.Amount))
+                    var capacity = _cargoOrderDataManager.GetCapacity(orders.Database.Id);
+                    if (capacity.CurrentCapacity == capacity.MaxCapacity)
                         break;
-                    _cargoOrderDataManager.ApproveOrder(Orders.Database.Id, msg.OrderNumber);
+                    if (!_cargoConsoleSystem.ChangeBalance(_bankAccount.Id, (-product.PointCost) * order.Amount))
+                        break;
+                    _cargoOrderDataManager.ApproveOrder(orders.Database.Id, msg.OrderNumber);
+                    UpdateUIState();
                     break;
                 }
                 case CargoConsoleShuttleMessage _:
                 {
-                    var approvedOrders = _cargoOrderDataManager.RemoveAndGetApprovedFrom(Orders.Database);
+                    var approvedOrders = _cargoOrderDataManager.RemoveAndGetApprovedFrom(orders.Database);
+                    orders.Database.ClearOrderCapacity();
                     // TODO replace with shuttle code
 
                     // TEMPORARY loop for spawning stuff on top of console
                     foreach (var order in approvedOrders)
                     {
-                        if (!_prototypeManager.TryIndex(order.ProductId, out CargoProductPrototype product))
+                        if (!PrototypeManager.TryIndex(order.ProductId, out CargoProductPrototype product))
                             continue;
                         for (var i = 0; i < order.Amount; i++)
                         {
-                            Owner.EntityManager.SpawnEntity(product.Product, Owner.Transform.GridPosition);
+                            Owner.EntityManager.SpawnEntity(product.Product, Owner.Transform.Coordinates);
                         }
                     }
                     break;
@@ -115,20 +171,28 @@ namespace Content.Server.GameObjects.Components.Cargo
 
         void IActivate.Activate(ActivateEventArgs eventArgs)
         {
-            if (!eventArgs.User.TryGetComponent(out IActorComponent actor))
+            if (!eventArgs.User.TryGetComponent(out IActorComponent? actor))
+            {
+                return;
+            }
+            if (!Powered)
+                return;
+
+            UserInterface?.Open(actor.playerSession);
+        }
+
+        private void UpdateUIState()
+        {
+            if (_bankAccount == null || !Owner.IsValid())
             {
                 return;
             }
 
-            _userInterface.Open(actor.playerSession);
-        }
-
-        /// <summary>
-        ///    Sync bank account information
-        /// </summary>
-        public void SetState(int id, string name, int balance)
-        {
-            _userInterface.SetState(new CargoConsoleInterfaceState(_requestOnly, id, name, balance));
+            var id = _bankAccount.Id;
+            var name = _bankAccount.Name;
+            var balance = _bankAccount.Balance;
+            var capacity = _cargoOrderDataManager.GetCapacity(id);
+            UserInterface?.SetState(new CargoConsoleInterfaceState(_requestOnly, id, name, balance, capacity));
         }
     }
 }

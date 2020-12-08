@@ -20,6 +20,11 @@ namespace Content.Server.Mobs
         /// </summary>
         public abstract string Name { get; }
 
+        /// <summary>
+        ///     Whether this role should be considered antagonistic or not.
+        /// </summary>
+        public abstract bool Antagonist { get; }
+
         protected Role(Mind mind)
         {
             Mind = mind;

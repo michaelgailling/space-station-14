@@ -1,11 +1,12 @@
-﻿using Content.Client.UserInterface;
+﻿using Content.Client.UserInterface.Stylesheets;
 using Content.Client.Utility;
-using Robust.Shared.Timing;
+using Content.Shared.Chemistry;
 using Content.Shared.GameObjects.Components.Chemistry;
 using Robust.Client.UserInterface;
 using Robust.Client.UserInterface.Controls;
 using Robust.Shared.GameObjects;
 using Robust.Shared.Localization;
+using Robust.Shared.Timing;
 using Robust.Shared.ViewVariables;
 
 namespace Content.Client.GameObjects.Components.Chemistry
@@ -16,8 +17,8 @@ namespace Content.Client.GameObjects.Components.Chemistry
     [RegisterComponent]
     public class InjectorComponent : SharedInjectorComponent, IItemStatus
     {
-        [ViewVariables] private int CurrentVolume { get; set; }
-        [ViewVariables] private int TotalVolume { get; set; }
+        [ViewVariables] private ReagentUnit CurrentVolume { get; set; }
+        [ViewVariables] private ReagentUnit TotalVolume { get; set; }
         [ViewVariables] private InjectorToggleMode CurrentMode { get; set; }
         [ViewVariables(VVAccess.ReadWrite)] private bool _uiUpdateNeeded;
 
@@ -28,14 +29,15 @@ namespace Content.Client.GameObjects.Components.Chemistry
         //Handle net updates
         public override void HandleComponentState(ComponentState curState, ComponentState nextState)
         {
-            var cast = (InjectorComponentState)curState;
-            if (cast != null)
+            if (curState is not InjectorComponentState state)
             {
-                CurrentVolume = cast.CurrentVolume;
-                TotalVolume = cast.TotalVolume;
-                CurrentMode = cast.CurrentMode;
-                _uiUpdateNeeded = true;
+                return;
             }
+
+            CurrentVolume = state.CurrentVolume;
+            TotalVolume = state.TotalVolume;
+            CurrentMode = state.CurrentMode;
+            _uiUpdateNeeded = true;
         }
 
         /// <summary>
@@ -49,7 +51,7 @@ namespace Content.Client.GameObjects.Components.Chemistry
             public StatusControl(InjectorComponent parent)
             {
                 _parent = parent;
-                _label = new RichTextLabel { StyleClasses = { NanoStyle.StyleClassItemStatus } };
+                _label = new RichTextLabel { StyleClasses = { StyleNano.StyleClassItemStatus } };
                 AddChild(_label);
 
                 parent._uiUpdateNeeded = true;
@@ -62,7 +64,7 @@ namespace Content.Client.GameObjects.Components.Chemistry
                 {
                     return;
                 }
-                
+
                 _parent._uiUpdateNeeded = false;
 
                 //Update current volume and injector state

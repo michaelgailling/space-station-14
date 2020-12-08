@@ -1,9 +1,10 @@
 ﻿using System.Linq;
 using Content.Client.GameObjects.Components.Mobs;
 using Content.Client.Interfaces;
+using Content.Client.UserInterface.Stylesheets;
 using Content.Client.Utility;
-using Content.Shared.Jobs;
 using Content.Shared.Preferences;
+using Content.Shared.Roles;
 using Robust.Client.GameObjects;
 using Robust.Client.Graphics.Drawing;
 using Robust.Client.Interfaces.ResourceManagement;
@@ -26,9 +27,9 @@ namespace Content.Client.UserInterface
         private readonly HumanoidProfileEditor _humanoidProfileEditor;
         private readonly IClientPreferencesManager _preferencesManager;
         public readonly Button CloseButton;
+        public readonly Button SaveButton;
 
         public CharacterSetupGui(IEntityManager entityManager,
-            ILocalizationManager localization,
             IResourceCache resourceCache,
             IClientPreferencesManager preferencesManager,
             IPrototypeManager prototypeManager)
@@ -45,7 +46,7 @@ namespace Content.Client.UserInterface
 
             AddChild(margin);
 
-            var panelTex = resourceCache.GetTexture("/Nano/button.svg.96dpi.png");
+            var panelTex = resourceCache.GetTexture("/Textures/Interface/Nano/button.svg.96dpi.png");
             var back = new StyleBoxTexture
             {
                 Texture = panelTex,
@@ -64,13 +65,6 @@ namespace Content.Client.UserInterface
 
             margin.AddChild(vBox);
 
-            CloseButton = new Button
-            {
-                SizeFlagsHorizontal = SizeFlags.Expand | SizeFlags.ShrinkEnd,
-                Text = localization.GetString("Save and close"),
-                StyleClasses = {NanoStyle.StyleClassButtonBig}
-            };
-
             var topHBox = new HBoxContainer
             {
                 CustomMinimumSize = (0, 40),
@@ -83,14 +77,25 @@ namespace Content.Client.UserInterface
                         {
                             new Label
                             {
-                                Text = localization.GetString("Character Setup"),
-                                StyleClasses = {NanoStyle.StyleClassLabelHeadingBigger},
+                                Text = Loc.GetString("Character Setup"),
+                                StyleClasses = {StyleNano.StyleClassLabelHeadingBigger},
                                 VAlign = Label.VAlignMode.Center,
                                 SizeFlagsHorizontal = SizeFlags.Expand | SizeFlags.ShrinkCenter
                             }
                         }
                     },
-                    CloseButton
+                    (SaveButton = new Button
+                    {
+                        SizeFlagsHorizontal = SizeFlags.Expand | SizeFlags.ShrinkEnd,
+                        Text = Loc.GetString("Save"),
+                        StyleClasses = {StyleNano.StyleClassButtonBig},
+                    }),
+                    (CloseButton = new Button
+                    {
+                        SizeFlagsHorizontal = SizeFlags.ShrinkEnd,
+                        Text = Loc.GetString("Close"),
+                        StyleClasses = {StyleNano.StyleClassButtonBig},
+                    })
                 }
             };
 
@@ -100,7 +105,7 @@ namespace Content.Client.UserInterface
             {
                 PanelOverride = new StyleBoxFlat
                 {
-                    BackgroundColor = NanoStyle.NanoGold,
+                    BackgroundColor = StyleNano.NanoGold,
                     ContentMarginTopOverride = 2
                 }
             });
@@ -136,42 +141,57 @@ namespace Content.Client.UserInterface
             _createNewCharacterButton = new Button
             {
                 Text = "Create new slot...",
-                ToolTip = $"A maximum of {preferencesManager.Settings.MaxCharacterSlots} characters are allowed."
             };
             _createNewCharacterButton.OnPressed += args =>
             {
                 preferencesManager.CreateCharacter(HumanoidCharacterProfile.Default());
                 UpdateUI();
+                args.Event.Handle();
             };
 
             hBox.AddChild(new PanelContainer
             {
-                PanelOverride = new StyleBoxFlat {BackgroundColor = NanoStyle.NanoGold},
+                PanelOverride = new StyleBoxFlat {BackgroundColor = StyleNano.NanoGold},
                 CustomMinimumSize = (2, 0)
             });
-            _humanoidProfileEditor = new HumanoidProfileEditor(localization, preferencesManager, prototypeManager);
+            _humanoidProfileEditor = new HumanoidProfileEditor(preferencesManager, prototypeManager, entityManager);
             _humanoidProfileEditor.OnProfileChanged += newProfile => { UpdateUI(); };
             hBox.AddChild(_humanoidProfileEditor);
 
             UpdateUI();
+
+            preferencesManager.OnServerDataLoaded += UpdateUI;
         }
 
-        public void Save()
+        protected override void Dispose(bool disposing)
         {
-            _humanoidProfileEditor.Save();
+            base.Dispose(disposing);
+            if (!disposing)
+                return;
+
+            _preferencesManager.OnServerDataLoaded -= UpdateUI;
         }
+
+        public void Save() => _humanoidProfileEditor.Save();
 
         private void UpdateUI()
         {
             var numberOfFullSlots = 0;
             var characterButtonsGroup = new ButtonGroup();
             _charactersVBox.RemoveAllChildren();
-            var characterIndex = 0;
-            foreach (var character in _preferencesManager.Preferences.Characters)
+
+            if (!_preferencesManager.ServerDataLoaded)
+            {
+                return;
+            }
+
+            _createNewCharacterButton.ToolTip =
+                $"A maximum of {_preferencesManager.Settings.MaxCharacterSlots} characters are allowed.";
+
+            foreach (var (slot, character) in _preferencesManager.Preferences.Characters)
             {
                 if (character is null)
                 {
-                    characterIndex++;
                     continue;
                 }
 
@@ -182,16 +202,16 @@ namespace Content.Client.UserInterface
                     character);
                 _charactersVBox.AddChild(characterPickerButton);
 
-                var characterIndexCopy = characterIndex;
-                characterPickerButton.ActualButton.OnPressed += args =>
+                var characterIndexCopy = slot;
+                characterPickerButton.OnPressed += args =>
                 {
                     _humanoidProfileEditor.Profile = (HumanoidCharacterProfile) character;
                     _humanoidProfileEditor.CharacterSlot = characterIndexCopy;
                     _humanoidProfileEditor.UpdateControls();
                     _preferencesManager.SelectCharacter(character);
                     UpdateUI();
+                    args.Event.Handle();
                 };
-                characterIndex++;
             }
 
             _createNewCharacterButton.Disabled =
@@ -199,9 +219,8 @@ namespace Content.Client.UserInterface
             _charactersVBox.AddChild(_createNewCharacterButton);
         }
 
-        private class CharacterPickerButton : Control
+        private class CharacterPickerButton : ContainerButton
         {
-            public readonly Button ActualButton;
             private IEntity _previewDummy;
 
             public CharacterPickerButton(
@@ -210,6 +229,10 @@ namespace Content.Client.UserInterface
                 ButtonGroup group,
                 ICharacterProfile profile)
             {
+                AddStyleClass(StyleClassButton);
+                ToggleMode = true;
+                Group = group;
+
                 _previewDummy = entityManager.SpawnEntity("HumanMob_Dummy", MapCoordinates.Nullspace);
                 _previewDummy.GetComponent<HumanoidAppearanceComponent>().UpdateFromProfile(profile);
                 var humanoid = profile as HumanoidCharacterProfile;
@@ -220,22 +243,13 @@ namespace Content.Client.UserInterface
 
                 var isSelectedCharacter = profile == preferencesManager.Preferences.SelectedCharacter;
 
-                ActualButton = new Button
-                {
-                    SizeFlagsHorizontal = SizeFlags.FillExpand,
-                    SizeFlagsVertical = SizeFlags.FillExpand,
-                    ToggleMode = true,
-                    Group = group
-                };
                 if (isSelectedCharacter)
-                    ActualButton.Pressed = true;
-                AddChild(ActualButton);
+                    Pressed = true;
 
                 var view = new SpriteView
                 {
                     Sprite = _previewDummy.GetComponent<SpriteComponent>(),
                     Scale = (2, 2),
-                    MouseFilter = MouseFilterMode.Ignore,
                     OverrideDirection = Direction.South
                 };
 
@@ -268,7 +282,6 @@ namespace Content.Client.UserInterface
                 var internalHBox = new HBoxContainer
                 {
                     SizeFlagsHorizontal = SizeFlags.FillExpand,
-                    MouseFilter = MouseFilterMode.Ignore,
                     SeparationOverride = 0,
                     Children =
                     {
@@ -284,7 +297,9 @@ namespace Content.Client.UserInterface
             protected override void Dispose(bool disposing)
             {
                 base.Dispose(disposing);
-                if (!disposing) return;
+                if (!disposing)
+                    return;
+
                 _previewDummy.Delete();
                 _previewDummy = null;
             }

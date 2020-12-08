@@ -1,49 +1,63 @@
-﻿using System;
+﻿#nullable enable
+using System;
 using System.Linq;
-using Content.Server.GameObjects.Components.Items.Storage;
-using Content.Server.GameObjects.Components.Sound;
-using Content.Server.GameObjects.EntitySystems;
-using Content.Shared.GameObjects;
+using System.Threading;
+using System.Threading.Tasks;
+using Content.Server.GameObjects.Components.GUI;
+using Content.Server.GameObjects.Components.Interactable;
+using Content.Shared.GameObjects.Components.Body;
+using Content.Shared.GameObjects.Components.Interactable;
 using Content.Shared.GameObjects.Components.Storage;
+using Content.Shared.GameObjects.EntitySystems;
+using Content.Shared.GameObjects.Verbs;
+using Content.Shared.Interfaces;
+using Content.Shared.Interfaces.GameObjects.Components;
 using Robust.Server.GameObjects;
 using Robust.Server.GameObjects.Components.Container;
-using Robust.Server.Interfaces.GameObjects;
+using Robust.Server.GameObjects.EntitySystems;
 using Robust.Shared.GameObjects;
 using Robust.Shared.GameObjects.Components;
+using Robust.Shared.GameObjects.Systems;
 using Robust.Shared.Interfaces.GameObjects;
-using Robust.Shared.Interfaces.Network;
+using Robust.Shared.Interfaces.Timing;
+using Robust.Shared.IoC;
+using Robust.Shared.Localization;
 using Robust.Shared.Maths;
 using Robust.Shared.Serialization;
 using Robust.Shared.ViewVariables;
 
-namespace Content.Server.GameObjects.Components
+namespace Content.Server.GameObjects.Components.Items.Storage
 {
     [RegisterComponent]
     [ComponentReference(typeof(IActivate))]
     [ComponentReference(typeof(IStorageComponent))]
-    public class EntityStorageComponent : Component, IActivate, IStorageComponent
+    public class EntityStorageComponent : Component, IActivate, IStorageComponent, IInteractUsing, IDestroyAct, IActionBlocker, IExAct
     {
+        [Dependency] private readonly IGameTiming _gameTiming = default!;
+
         public override string Name => "EntityStorage";
 
         private const float MaxSize = 1.0f; // maximum width or height of an entity allowed inside the storage.
 
-        private int StorageCapacityMax;
-        private bool IsCollidableWhenOpen;
-        private Container Contents;
-        private IEntityQuery entityQuery;
-        private bool _locked;
-        private bool _showContents;
-        private bool _noDoor;
+        private static readonly TimeSpan InternalOpenAttemptDelay = TimeSpan.FromSeconds(0.5);
+        private TimeSpan _lastInternalOpenAttempt;
 
-        /// <summary>
-        /// Determines if the storage is locked, meaning it cannot be opened.
-        /// </summary>
-        [ViewVariables(VVAccess.ReadWrite)]
-        public bool Locked
-        {
-            get => _locked;
-            set => _locked = value;
-        }
+        [ViewVariables]
+        private int _storageCapacityMax;
+        [ViewVariables]
+        private bool _isCollidableWhenOpen;
+        [ViewVariables]
+        protected IEntityQuery? EntityQuery;
+        private bool _showContents;
+        private bool _occludesLight;
+        private bool _open;
+        private bool _canWeldShut;
+        private bool _isWeldedShut;
+        private string _closeSound = "/Audio/Machines/closetclose.ogg";
+        private string _openSound = "/Audio/Machines/closetopen.ogg";
+
+        [ViewVariables]
+        protected Container Contents = default!;
 
         /// <summary>
         /// Determines if the container contents should be drawn when the container is closed.
@@ -59,15 +73,55 @@ namespace Content.Server.GameObjects.Components
             }
         }
 
-        /// <summary>
-        /// Disables door control, and synchronizes the door with the lock. This is used for
-        /// attaching entities to the container without having a toggleable door.
-        /// </summary>
         [ViewVariables(VVAccess.ReadWrite)]
-        public bool NoDoor
+        public bool OccludesLight
         {
-            get => _noDoor;
-            set => _noDoor = value;
+            get => _occludesLight;
+            set
+            {
+                _occludesLight = value;
+                Contents.OccludesLight = _occludesLight;
+            }
+        }
+
+        [ViewVariables(VVAccess.ReadWrite)]
+        public bool Open
+        {
+            get => _open;
+            private set => _open = value;
+        }
+
+        [ViewVariables(VVAccess.ReadWrite)]
+        public bool IsWeldedShut
+        {
+            get => _isWeldedShut;
+            set
+            {
+                _isWeldedShut = value;
+
+                if (Owner.TryGetComponent(out AppearanceComponent? appearance))
+                {
+                    appearance.SetData(StorageVisuals.Welded, value);
+                }
+            }
+        }
+
+        private bool _beingWelded;
+
+        [ViewVariables(VVAccess.ReadWrite)]
+        public bool CanWeldShut {
+            get => _canWeldShut;
+            set
+            {
+                if (_canWeldShut == value)
+                    return;
+
+                _canWeldShut = value;
+                if (Owner.TryGetComponent(out AppearanceComponent? appearance))
+                {
+                    appearance.SetData(StorageVisuals.CanWeld, value);
+                }
+            }
         }
 
         /// <inheritdoc />
@@ -75,12 +129,10 @@ namespace Content.Server.GameObjects.Components
         {
             base.Initialize();
             Contents = ContainerManagerComponent.Ensure<Container>(nameof(EntityStorageComponent), Owner);
-            entityQuery = new IntersectingEntityQuery(Owner);
+            EntityQuery = new IntersectingEntityQuery(Owner);
 
             Contents.ShowContents = _showContents;
-
-            if (_noDoor && !_locked)
-                Open = true;
+            Contents.OccludesLight = _occludesLight;
 
             if (Owner.TryGetComponent<PlaceableSurfaceComponent>(out var placeableSurfaceComponent))
             {
@@ -93,56 +145,54 @@ namespace Content.Server.GameObjects.Components
         {
             base.ExposeData(serializer);
 
-            serializer.DataField(ref StorageCapacityMax, "Capacity", 30);
-            serializer.DataField(ref IsCollidableWhenOpen, "IsCollidableWhenOpen", false);
-            serializer.DataField(ref _locked, "locked", false);
+            serializer.DataField(ref _storageCapacityMax, "Capacity", 30);
+            serializer.DataField(ref _isCollidableWhenOpen, "IsCollidableWhenOpen", false);
             serializer.DataField(ref _showContents, "showContents", false);
-            serializer.DataField(ref _noDoor, "noDoor", false);
+            serializer.DataField(ref _occludesLight, "occludesLight", true);
+            serializer.DataField(ref _open, "open", false);
+            serializer.DataField(this, a => a.IsWeldedShut, "IsWeldedShut", false);
+            serializer.DataField(this, a => a.CanWeldShut, "CanWeldShut", true);
+            serializer.DataField(this, x => x._closeSound, "closeSound", "/Audio/Machines/closetclose.ogg");
+            serializer.DataField(this, x => x._openSound, "openSound", "/Audio/Machines/closetopen.ogg");
         }
 
-        [ViewVariables(VVAccess.ReadWrite)]
-        public bool Open { get; private set; }
-
-        void IActivate.Activate(ActivateEventArgs eventArgs)
+        public virtual void Activate(ActivateEventArgs eventArgs)
         {
-            if(_noDoor)
-                ToggleLock();
-            else
-                ToggleOpen();
+            ToggleOpen(eventArgs.User);
         }
 
-        private void ToggleOpen()
+        public virtual bool CanOpen(IEntity user, bool silent = false)
+        {
+            if (IsWeldedShut)
+            {
+                if(!silent) Owner.PopupMessage(user, Loc.GetString("It's welded completely shut!"));
+                return false;
+            }
+            return true;
+        }
+
+        public virtual bool CanClose(IEntity user, bool silent = false)
+        {
+            return true;
+        }
+
+        private void ToggleOpen(IEntity user)
         {
             if (Open)
             {
-                CloseStorage();
+                TryCloseStorage(user);
             }
             else
             {
-                OpenStorage();
+                TryOpenStorage(user);
             }
         }
 
-        private void ToggleLock()
-        {
-            _locked = !_locked;
-
-            if(_noDoor)
-            {
-                if(_locked)
-                    CloseStorage();
-                else
-                    OpenStorage();
-            }
-
-            if (Owner.TryGetComponent(out SoundComponent soundComponent))
-                soundComponent.Play(_locked ? "/Audio/machines/lockenable.ogg" : "/Audio/machines/lockreset.ogg");
-        }
-
-        private void CloseStorage()
+        protected virtual void CloseStorage()
         {
             Open = false;
-            var entities = Owner.EntityManager.GetEntities(entityQuery);
+            EntityQuery ??= new IntersectingEntityQuery(Owner);
+            var entities = Owner.EntityManager.GetEntities(EntityQuery);
             var count = 0;
             foreach (var entity in entities)
             {
@@ -150,8 +200,9 @@ namespace Content.Server.GameObjects.Components
                 if(!entity.Transform.IsMapTransform)
                     continue;
 
-                // only items that can be stored in an inventory, or a player, can be eaten by a locker
-                if(!entity.HasComponent<StoreableComponent>() && !entity.HasComponent<IActorComponent>())
+                // only items that can be stored in an inventory, or a mob, can be eaten by a locker
+                if (!entity.HasComponent<StorableComponent>() &&
+                    !entity.HasComponent<IBody>())
                     continue;
 
                 if (!AddToContents(entity))
@@ -159,38 +210,37 @@ namespace Content.Server.GameObjects.Components
                     continue;
                 }
                 count++;
-                if (count >= StorageCapacityMax)
+                if (count >= _storageCapacityMax)
                 {
                     break;
                 }
             }
 
             ModifyComponents();
-            if (Owner.TryGetComponent(out SoundComponent soundComponent))
-            {
-                soundComponent.Play("/Audio/machines/closetclose.ogg");
-            }
+            EntitySystem.Get<AudioSystem>().PlayFromEntity(_closeSound, Owner);
+            _lastInternalOpenAttempt = default;
         }
 
-        private void OpenStorage()
+        protected virtual void OpenStorage()
         {
-            if (_locked)
-                return;
-
             Open = true;
             EmptyContents();
             ModifyComponents();
-            if (Owner.TryGetComponent(out SoundComponent soundComponent))
-            {
-                soundComponent.Play("/Audio/machines/closetopen.ogg");
-            }
+            EntitySystem.Get<AudioSystem>().PlayFromEntity(_openSound, Owner);
         }
 
         private void ModifyComponents()
         {
-            if (Owner.TryGetComponent<ICollidableComponent>(out var collidableComponent))
+            if (!_isCollidableWhenOpen && Owner.TryGetComponent<IPhysicsComponent>(out var physics))
             {
-                collidableComponent.CollisionEnabled = IsCollidableWhenOpen || !Open;
+                if (Open)
+                {
+                    physics.Hard = false;
+                }
+                else
+                {
+                    physics.Hard = true;
+                }
             }
 
             if (Owner.TryGetComponent<PlaceableSurfaceComponent>(out var placeableSurfaceComponent))
@@ -198,82 +248,91 @@ namespace Content.Server.GameObjects.Components
                 placeableSurfaceComponent.IsPlaceable = Open;
             }
 
-            if (Owner.TryGetComponent(out AppearanceComponent appearance))
+            if (Owner.TryGetComponent(out AppearanceComponent? appearance))
             {
                 appearance.SetData(StorageVisuals.Open, Open);
             }
         }
 
-        private bool AddToContents(IEntity entity)
+        protected virtual bool AddToContents(IEntity entity)
         {
-            var collidableComponent = Owner.GetComponent<ICollidableComponent>();
-            if(entity.TryGetComponent<ICollidableComponent>(out var entityCollidableComponent))
+            if (entity == Owner) return false;
+            if (entity.TryGetComponent(out IPhysicsComponent? entityPhysicsComponent))
             {
-                if(MaxSize < entityCollidableComponent.WorldAABB.Size.X
-                    || MaxSize < entityCollidableComponent.WorldAABB.Size.Y)
+                if(MaxSize < entityPhysicsComponent.WorldAABB.Size.X
+                    || MaxSize < entityPhysicsComponent.WorldAABB.Size.Y)
                 {
                     return false;
-                }
-
-                if (collidableComponent.WorldAABB.Left > entityCollidableComponent.WorldAABB.Left)
-                {
-                    entity.Transform.WorldPosition += new Vector2(collidableComponent.WorldAABB.Left - entityCollidableComponent.WorldAABB.Left, 0);
-                }
-                else if (collidableComponent.WorldAABB.Right < entityCollidableComponent.WorldAABB.Right)
-                {
-                    entity.Transform.WorldPosition += new Vector2(collidableComponent.WorldAABB.Right - entityCollidableComponent.WorldAABB.Right, 0);
-                }
-                if (collidableComponent.WorldAABB.Bottom > entityCollidableComponent.WorldAABB.Bottom)
-                {
-                    entity.Transform.WorldPosition += new Vector2(0, collidableComponent.WorldAABB.Bottom - entityCollidableComponent.WorldAABB.Bottom);
-                }
-                else if (collidableComponent.WorldAABB.Top < entityCollidableComponent.WorldAABB.Top)
-                {
-                    entity.Transform.WorldPosition += new Vector2(0, collidableComponent.WorldAABB.Top - entityCollidableComponent.WorldAABB.Top);
                 }
             }
             if (Contents.CanInsert(entity))
             {
-                // Because Insert sets the local position to (0,0), and we want to keep the contents spread out,
-                // we re-apply the world position after inserting.
-                Vector2 worldPos;
-                if (entity.HasComponent<IActorComponent>())
-                {
-                    worldPos = Owner.Transform.WorldPosition;
-                }
-                else
-                {
-                    worldPos = entity.Transform.WorldPosition;
-                }
                 Contents.Insert(entity);
-                entity.Transform.WorldPosition = worldPos;
+                entity.Transform.LocalPosition = Vector2.Zero;
+                if (entityPhysicsComponent != null)
+                {
+                    entityPhysicsComponent.CanCollide = false;
+                }
                 return true;
             }
             return false;
+        }
+
+        public virtual Vector2 ContentsDumpPosition()
+        {
+            return Owner.Transform.WorldPosition;
         }
 
         private void EmptyContents()
         {
             foreach (var contained in Contents.ContainedEntities.ToArray())
             {
-                Contents.Remove(contained);
+                if(Contents.Remove(contained))
+                {
+                    contained.Transform.WorldPosition = ContentsDumpPosition();
+                    if (contained.TryGetComponent<IPhysicsComponent>(out var physics))
+                    {
+                        physics.CanCollide = true;
+                    }
+                }
             }
         }
 
         /// <inheritdoc />
-        public override void HandleMessage(ComponentMessage message, INetChannel netChannel = null, IComponent component = null)
+        public override void HandleMessage(ComponentMessage message, IComponent? component)
         {
-            base.HandleMessage(message, netChannel, component);
+            base.HandleMessage(message, component);
 
             switch (message)
             {
                 case RelayMovementEntityMessage msg:
                     if (msg.Entity.HasComponent<HandsComponent>())
                     {
-                        OpenStorage();
+                        if (_gameTiming.CurTime <
+                            _lastInternalOpenAttempt + InternalOpenAttemptDelay)
+                        {
+                            break;
+                        }
+
+                        _lastInternalOpenAttempt = _gameTiming.CurTime;
+                        TryOpenStorage(msg.Entity);
                     }
                     break;
             }
+        }
+
+        public virtual bool TryOpenStorage(IEntity user)
+        {
+            if (!CanOpen(user)) return false;
+            OpenStorage();
+            return true;
+        }
+
+        public virtual bool TryCloseStorage(IEntity user)
+        {
+            if (!CanClose(user)) return false;
+            CloseStorage();
+            return true;
         }
 
         /// <inheritdoc />
@@ -303,7 +362,7 @@ namespace Content.Server.GameObjects.Components
                 return true;
             }
 
-            if (Contents.ContainedEntities.Count >= StorageCapacityMax)
+            if (Contents.ContainedEntities.Count >= _storageCapacityMax)
             {
                 return false;
             }
@@ -311,50 +370,112 @@ namespace Content.Server.GameObjects.Components
             return Contents.CanInsert(entity);
         }
 
-        /// <summary>
-        /// Adds a verb that toggles the lock of the storage.
-        /// </summary>
-        [Verb]
-        private sealed class LockToggleVerb : Verb<EntityStorageComponent>
+        async Task<bool> IInteractUsing.InteractUsing(InteractUsingEventArgs eventArgs)
         {
-            /// <inheritdoc />
-            protected override string GetText(IEntity user, EntityStorageComponent component)
+            if (_beingWelded)
+                return false;
+
+            if (Open)
             {
-                return component._locked ? "Unlock" : "Lock";
+                _beingWelded = false;
+                return false;
             }
 
-            /// <inheritdoc />
-            protected override VerbVisibility GetVisibility(IEntity user, EntityStorageComponent component)
+            if (!CanWeldShut)
             {
-                return VerbVisibility.Visible;
+                _beingWelded = false;
+                return false;
             }
 
-            /// <inheritdoc />
-            protected override void Activate(IEntity user, EntityStorageComponent component)
+            if (Contents.Contains(eventArgs.User))
             {
-                component.ToggleLock();
+                _beingWelded = false;
+                Owner.PopupMessage(eventArgs.User, Loc.GetString("It's too Cramped!"));
+                return false;
             }
+
+            if (!eventArgs.Using.TryGetComponent(out WelderComponent? tool) || !tool.WelderLit)
+            {
+                _beingWelded = false;
+                return false;
+            }
+
+            if (_beingWelded)
+                return false;
+
+            _beingWelded = true;
+
+            if (!await tool.UseTool(eventArgs.User, Owner, 1f, ToolQuality.Welding, 1f))
+            {
+                _beingWelded = false;
+                return false;
+            }
+
+            _beingWelded = false;
+            IsWeldedShut ^= true;
+            return true;
+        }
+
+        void IDestroyAct.OnDestroy(DestructionEventArgs eventArgs)
+        {
+            Open = true;
+            EmptyContents();
         }
 
         [Verb]
         private sealed class OpenToggleVerb : Verb<EntityStorageComponent>
         {
-            /// <inheritdoc />
-            protected override string GetText(IEntity user, EntityStorageComponent component)
+            protected override void GetData(IEntity user, EntityStorageComponent component, VerbData data)
             {
-                return component.Open ? "Close" : "Open";
-            }
+                if (!ActionBlockerSystem.CanInteract(user))
+                {
+                    data.Visibility = VerbVisibility.Invisible;
+                    return;
+                }
 
-            /// <inheritdoc />
-            protected override VerbVisibility GetVisibility(IEntity user, EntityStorageComponent component)
-            {
-                return component.NoDoor ? VerbVisibility.Invisible : VerbVisibility.Visible;
+                component.OpenVerbGetData(user, component, data);
             }
 
             /// <inheritdoc />
             protected override void Activate(IEntity user, EntityStorageComponent component)
             {
-                component.ToggleOpen();
+                component.ToggleOpen(user);
+            }
+        }
+
+        protected virtual void OpenVerbGetData(IEntity user, EntityStorageComponent component, VerbData data)
+        {
+            if (!ActionBlockerSystem.CanInteract(user))
+            {
+                data.Visibility = VerbVisibility.Invisible;
+                return;
+            }
+
+            if (IsWeldedShut)
+            {
+                data.Visibility = VerbVisibility.Disabled;
+                var verb = Loc.GetString(component.Open ? "Close" : "Open");
+                data.Text = Loc.GetString("{0} (welded shut)", verb);
+                return;
+            }
+
+            data.Text = Loc.GetString(component.Open ? "Close" : "Open");
+        }
+
+        void IExAct.OnExplosion(ExplosionEventArgs eventArgs)
+        {
+            if (eventArgs.Severity < ExplosionSeverity.Heavy)
+            {
+                return;
+            }
+
+            foreach (var entity in Contents.ContainedEntities)
+            {
+                var exActs = entity.GetAllComponents<IExAct>().ToArray();
+                foreach (var exAct in exActs)
+                {
+                    exAct.OnExplosion(eventArgs);
+                }
             }
         }
     }

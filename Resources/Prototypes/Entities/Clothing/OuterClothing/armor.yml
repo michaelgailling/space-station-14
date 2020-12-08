@@ -1,0 +1,109 @@
+- type: entity
+  parent: ClothingOuterBase
+  id: ClothingOuterArmorReflective
+  name: armor (reflective)
+  description: An armored vest with advanced shielding to protect against energy weapons.
+  components:
+  - type: Sprite
+    sprite: Clothing/OuterClothing/Armor/armor_reflec.rsi
+  - type: Clothing
+    sprite: Clothing/OuterClothing/Armor/armor_reflec.rsi
+
+- type: entity
+  parent: ClothingOuterBase
+  id: ClothingOuterArmorBulletproof
+  name: bulletproof
+  description: An armored vest with heavy plates to protect against ballistic projectiles.
+  components:
+  - type: Sprite
+    sprite: Clothing/OuterClothing/Armor/bulletproof.rsi
+  - type: Clothing
+    sprite: Clothing/OuterClothing/Armor/bulletproof.rsi
+
+- type: entity
+  parent: ClothingOuterBase
+  id: ClothingOuterArmorCult
+  name: cult armor
+  description: An evil-looking cult armor, made of bones.
+  components:
+  - type: Sprite
+    sprite: Clothing/OuterClothing/Armor/cult_armour.rsi
+  - type: Clothing
+    sprite: Clothing/OuterClothing/Armor/cult_armour.rsi
+
+- type: entity
+  parent: ClothingOuterBase
+  id: ClothingOuterArmorHeavy
+  name: heavy
+  description: A heavily armored suit that protects against excessive damage.
+  components:
+  - type: Sprite
+    sprite: Clothing/OuterClothing/Armor/heavy.rsi
+  - type: Clothing
+    sprite: Clothing/OuterClothing/Armor/heavy.rsi
+
+- type: entity
+  parent: ClothingOuterBase
+  id: ClothingOuterArmorHeavyGreen
+  name: heavy
+  description: A heavily armored suit with green accents that protects against excessive damage.
+  components:
+  - type: Sprite
+    sprite: Clothing/OuterClothing/Armor/heavygreen.rsi
+  - type: Clothing
+    sprite: Clothing/OuterClothing/Armor/heavygreen.rsi
+
+- type: entity
+  parent: ClothingOuterBase
+  id: ClothingOuterArmorHeavyRed
+  name: heavy
+  description: A heavily armored suit with red accents that protects against excessive damage.
+  components:
+  - type: Sprite
+    sprite: Clothing/OuterClothing/Armor/heavyred.rsi
+  - type: Clothing
+    sprite: Clothing/OuterClothing/Armor/heavyred.rsi
+
+- type: entity
+  parent: ClothingOuterBase
+  id: ClothingOuterArmorMagusblue
+  name: magus blue
+  description: An blue armored suit that provides good protection.
+  components:
+  - type: Sprite
+    sprite: Clothing/OuterClothing/Armor/magusblue.rsi
+  - type: Clothing
+    sprite: Clothing/OuterClothing/Armor/magusblue.rsi
+
+- type: entity
+  parent: ClothingOuterBase
+  id: ClothingOuterArmorMagusred
+  name: magus red
+  description: A red armored suit that provides good protection.
+  components:
+  - type: Sprite
+    sprite: Clothing/OuterClothing/Armor/magusred.rsi
+  - type: Clothing
+    sprite: Clothing/OuterClothing/Armor/magusred.rsi
+
+- type: entity
+  parent: ClothingOuterBase
+  id: ClothingOuterArmorRiot
+  name: riot
+  description: An armored vest with heavy padding to protect against melee attacks.
+  components:
+  - type: Sprite
+    sprite: Clothing/OuterClothing/Armor/riot.rsi
+  - type: Clothing
+    sprite: Clothing/OuterClothing/Armor/riot.rsi
+
+- type: entity
+  parent: ClothingOuterBase
+  id: ClothingOuterArmorScaf
+  name: scaf
+  description: A green and brown tactical suit for combat situations.
+  components:
+  - type: Sprite
+    sprite: Clothing/OuterClothing/Armor/scaf.rsi
+  - type: Clothing
+    sprite: Clothing/OuterClothing/Armor/scaf.rsi
